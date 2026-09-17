@@ -5,18 +5,18 @@ to a real satellite-data pipeline.
 
 ### Completed
 
-- Initial cyclone classification prototype
-- Multi-task CNN architecture
-- Cyclone presence detection
-- Cyclone category classification
-- Intensity regression head
-- Temporal prediction prototype
-- INSAT-3D dataset discovery through MOSDAC
-- IBTrACS North Indian Ocean track data integration
-- Real cyclone track preprocessing
-- Cyclone intensity/category label generation
-- Satellite observation matching manifest
-- HDF5 inspection tooling
+- Initial cyclone classification prototype.
+- Multi-task CNN architecture.
+- Cyclone presence detection.
+- Cyclone category classification.
+- Intensity regression head.
+- Temporal prediction prototype.
+- INSAT-3D dataset discovery through MOSDAC.
+- IBTrACS North Indian Ocean track data integration.
+- Real cyclone track preprocessing.
+- Cyclone intensity/category label generation.
+- Satellite observation matching manifest.
+- HDF5 inspection tooling.
 
 ### Real Cyclone Track Dataset
 
