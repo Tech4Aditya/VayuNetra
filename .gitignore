@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Secrets
+.env
+*.env
+mosdac/api/config.json
+
+# Model checkpoints
+backend/checkpoints/
+*.pt
+*.pth
+*.onnx
+
+# Raw / generated datasets
+backend/data/raw/
+backend/data/processed/
+backend/data/synthetic_dataset.npz
+*.h5
+*.hdf
+*.hdf5
+*.nc
+*.tif
+*.tiff
+
+# MOSDAC
+mosdac/error_logs/
+mosdac/mdapi.zip
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
