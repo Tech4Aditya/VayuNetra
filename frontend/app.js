@@ -12,6 +12,7 @@ const STOPS = [
     { t: 1.00, c: [160, 0, 200] }
 ];
 
+
 function color(v) {
     v = Math.max(0, Math.min(1, Number(v) || 0));
 
@@ -245,10 +246,14 @@ function renderPrediction(pred) {
     $("presenceState").textContent =
         cyclonePresent ? "DETECTED" : "CLEAR";
 
+    // FIXED:
+    // var(--green) -> var(--seafoam)
+    // var(--dim)   -> var(--text-dim)
+
     $("presenceState").style.color =
         cyclonePresent
-            ? "var(--green)"
-            : "var(--dim)";
+            ? "var(--seafoam)"
+            : "var(--text-dim)";
 
 
     // -----------------------------
@@ -364,10 +369,14 @@ function setStatus(message, success = false) {
 
     status.textContent = message;
 
+    // FIXED:
+    // var(--green) -> var(--seafoam)
+    // var(--muted) -> var(--text-muted)
+
     status.style.color =
         success
-            ? "var(--green)"
-            : "var(--muted)";
+            ? "var(--seafoam)"
+            : "var(--text-muted)";
 }
 
 
@@ -641,8 +650,11 @@ async function checkBackend() {
             "localhost:8000";
 
 
+        // FIXED:
+        // var(--green) -> var(--seafoam)
+
         $("systemDot").style.background =
-            "var(--green)";
+            "var(--seafoam)";
 
 
         setStatus(

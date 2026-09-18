@@ -27,10 +27,20 @@ from pathlib import Path
 import pandas as pd
 
 
-ROOT = Path(__file__).resolve().parents[2]
+# ============================================================
+# PATH CONFIG
+# ============================================================
+
+# app.py is inside:
+# cyclone-sih/backend/app.py
+#
+# Therefore .parent = cyclone-sih/backend
+
+ROOT = Path(__file__).resolve().parent
 
 INPUT = ROOT / "data" / "labels" / "cyclone_labels.csv"
 OUTPUT = ROOT / "data" / "labels" / "cyclone_labels_v2.csv"
+
 
 
 def classify_wind(wind_kt):

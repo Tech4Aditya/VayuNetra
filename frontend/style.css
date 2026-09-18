@@ -6,52 +6,52 @@
 :root {
     /* ---------- ENVIRONMENT ---------- */
 
-    --bg: #061014;
-    --bg-deep: #03090c;
+    --bg: #f3f5f4;
+    --bg-deep: #e9edec;
 
-    --panel: #0b171b;
-    --panel-light: #0f1d21;
-    --panel-dark: #071114;
+    --panel: #ffffff;
+    --panel-light: #f8faf9;
+    --panel-dark: #eef2f1;
 
-    --line: #203238;
-    --line-soft: #17272b;
+    --line: #d8e0de;
+    --line-soft: #e8edeb;
 
     /* ---------- TEXT ---------- */
 
-    --text: #edf3f2;
-    --text-soft: #c5d0cf;
-    --text-muted: #819395;
-    --text-dim: #536568;
+    --text: #172321;
+    --text-soft: #40504d;
+    --text-muted: #71807d;
+    --text-dim: #98a5a2;
 
     /* ---------- ENVIRONMENTAL COLORS ---------- */
 
     /* Ocean / observation */
-    --ocean: #20b8b0;
-    --ocean-light: #48d4ca;
-    --ocean-dark: #123f40;
+    --ocean: #159b96;
+    --ocean-light: #087c78;
+    --ocean-dark: #b9dedb;
 
     /* Detection */
-    --seafoam: #59d6a0;
-    --seafoam-dark: #173b30;
+    --seafoam: #239b70;
+    --seafoam-dark: #d8eee5;
 
     /* Classification */
-    --violet: #9b82e8;
-    --violet-dark: #2b2345;
+    --violet: #7458c7;
+    --violet-dark: #e7e0f8;
 
     /* Intensity */
-    --amber: #e6b34f;
-    --amber-dark: #403217;
+    --amber: #b77a16;
+    --amber-dark: #f2e5c8;
 
     /* Nowcast */
-    --coral: #e77b67;
-    --coral-dark: #41251f;
+    --coral: #c75e4b;
+    --coral-dark: #f3dcd7;
 
     /* Alerts */
-    --red: #ef6262;
-    --red-dark: #421f20;
+    --red: #d54b4b;
+    --red-dark: #f4dada;
 
     /* Neutral */
-    --white: #f4f7f6;
+    --white: #172321;
 
     /* ---------- TYPOGRAPHY ---------- */
 
@@ -92,9 +92,9 @@ body {
         ),
         linear-gradient(
             180deg,
-            #061014 0%,
-            #071216 45%,
-            #050d10 100%
+            #f7f9f8 0%,
+            #f1f4f3 45%,
+            #e9edec 100%
         );
 
     color: var(--text);
@@ -128,16 +128,16 @@ button {
 }
 
 ::-webkit-scrollbar-track {
-    background: #03090c;
+    background: #e9edec;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #24363a;
-    border: 2px solid #03090c;
+    background: #bdcbc8;
+    border: 2px solid #e9edec;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: #365055;
+    background: #9eafab;
 }
 
 
@@ -184,9 +184,9 @@ button {
     display: grid;
     place-items: center;
 
-    border: 1px solid #2b5555;
+    border: 1px solid #a9d2cf;
 
-    background: #071619;
+    background: #edf8f7;
 
     color: var(--ocean-light);
 
@@ -268,9 +268,9 @@ button {
 .env {
     padding: 6px 9px;
 
-    border: 1px solid #5a4824;
+    border: 1px solid #e2c98f;
 
-    background: #171208;
+    background: #fff9e9;
 
     color: var(--amber);
 
@@ -384,8 +384,8 @@ button {
     background:
         linear-gradient(
             145deg,
-            #0d1b1f,
-            #091317
+            #ffffff,
+            #f2f6f5
         );
 }
 
@@ -471,7 +471,7 @@ button {
 
     border: 1px solid var(--line);
 
-    background: #0b171a;
+    background: #ffffff;
 
     color: var(--text-soft);
 
@@ -487,9 +487,9 @@ button {
 
 .toolbar button:hover,
 .toolbar .btn:hover {
-    border-color: #38565a;
+    border-color: #a8cbc8;
 
-    background: #102023;
+    background: #edf8f7;
 
     color: var(--white);
 }
@@ -559,12 +559,12 @@ button {
     background:
         linear-gradient(
             145deg,
-            #0d191d 0%,
-            #091417 100%
+            #ffffff 0%,
+            #f5f8f7 100%
         );
 
     box-shadow:
-        0 12px 30px rgba(0, 0, 0, 0.22);
+        0 12px 30px rgba(31, 52, 48, 0.08);
 
     transition:
         border-color 0.2s ease,
@@ -572,7 +572,7 @@ button {
 }
 
 .card:hover {
-    border-color: #2b4145;
+    border-color: #b9c9c6;
 }
 
 
@@ -641,7 +641,7 @@ button {
 
     overflow: hidden;
 
-    border: 1px solid #254248;
+    border: 1px solid #bfd3d1;
 
     background:
         radial-gradient(
@@ -649,7 +649,7 @@ button {
             rgba(24, 100, 102, 0.10),
             transparent 35%
         ),
-        #020708;
+        #eef3f2;
 }
 
 
@@ -702,7 +702,7 @@ button {
 
     padding: 5px 7px;
 
-    background: rgba(2, 8, 10, 0.82);
+    background: rgba(255, 255, 255, 0.88);
 
     color: #b6c6c7;
 
@@ -930,9 +930,9 @@ button {
 
     overflow: hidden;
 
-    border: 1px solid #244039;
+    border: 1px solid #c5ded5;
 
-    background: #07100d;
+    background: #edf5f2;
 }
 
 .meter div {
@@ -979,7 +979,7 @@ button {
 
     color: var(--text-dim);
 
-    background: #071012;
+    background: #f3f6f5;
 
     font: 8px var(--mono);
 
@@ -1039,9 +1039,9 @@ button {
 
     overflow: hidden;
 
-    background: #071012;
+    background: #f3f6f5;
 
-    border: 1px solid #1b2b2f;
+    border: 1px solid #d5dfdd;
 }
 
 .bar-fill {
@@ -1120,13 +1120,13 @@ button {
 
     padding: 10px;
 
-    border: 1px solid #2f2925;
+    border: 1px solid #e3d8cc;
 
     background:
         linear-gradient(
             145deg,
-            #15100e,
-            #0b0e0e
+            #fffaf6,
+            #f5f1ee
         );
 }
 
@@ -1222,8 +1222,8 @@ button {
     background:
         linear-gradient(
             145deg,
-            #151208,
-            #0d0e0d
+            #fffaf0,
+            #f7f2e8
         );
 }
 
@@ -1236,7 +1236,7 @@ button {
     display: grid;
     place-items: center;
 
-    border: 1px solid #5a4723;
+    border: 1px solid #e2c98f;
 
     color: var(--amber);
 
@@ -1423,3 +1423,106 @@ label:focus-visible {
         transition-duration: 0.01ms !important;
     }
 }
+
+/* =========================================================
+   VAYUNETRA — LIGHT THEME FINAL OVERRIDES
+   ========================================================= */
+
+html { background: var(--bg-deep); }
+
+body {
+    background:
+        radial-gradient(circle at 15% -10%, rgba(21,155,150,.08), transparent 30%),
+        radial-gradient(circle at 90% 20%, rgba(116,88,199,.045), transparent 28%),
+        linear-gradient(180deg, #f7f9f8 0%, #f1f4f3 50%, #e9edec 100%);
+    color: var(--text);
+}
+
+.mark {
+    border-color: #a9d2cf;
+    background: #edf8f7;
+    color: var(--ocean);
+}
+
+.env {
+    border-color: #e2c98f;
+    background: #fff9e9;
+}
+
+.actions button {
+    background: #ffffff;
+}
+
+.actions button:hover {
+    border-color: var(--ocean);
+    background: #edf8f7;
+    color: var(--ocean);
+}
+
+.node {
+    background: linear-gradient(145deg, #ffffff, #f2f6f5);
+}
+
+.toolbar button,
+.toolbar .btn {
+    background: #ffffff;
+}
+
+.toolbar button:hover,
+.toolbar .btn:hover {
+    border-color: #a8cbc8;
+    background: #edf8f7;
+    color: var(--text);
+}
+
+.toolbar .primary {
+    background: var(--ocean);
+    border-color: var(--ocean);
+    color: #ffffff;
+}
+
+.toolbar .primary:hover {
+    background: var(--ocean-light);
+    border-color: var(--ocean-light);
+}
+
+.card {
+    background: linear-gradient(145deg, #ffffff 0%, #f5f8f7 100%);
+    box-shadow: 0 10px 28px rgba(31,52,48,.08);
+}
+
+.card:hover { border-color: #b9c9c6; }
+
+.viewport {
+    background:
+        radial-gradient(circle at 50% 45%, rgba(21,155,150,.08), transparent 35%),
+        #eef3f2;
+}
+
+.viewport::before {
+    background:
+        linear-gradient(rgba(21,155,150,.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(21,155,150,.08) 1px, transparent 1px);
+}
+
+.vl {
+    background: rgba(255,255,255,.88);
+    color: #526461;
+    border: 1px solid rgba(210,222,220,.8);
+}
+
+.meter { background: #edf5f2; }
+.bar-bg { background: #edf1f0; }
+.pill { background: #f3f6f5; }
+
+.track {
+    background: linear-gradient(145deg, #fffaf6, #f5f1ee);
+}
+
+.warning {
+    background: linear-gradient(145deg, #fffaf0, #f7f2e8);
+}
+
+::-webkit-scrollbar-track { background: #e9edec; }
+::-webkit-scrollbar-thumb { background: #bdcbc8; border-color: #e9edec; }
+::-webkit-scrollbar-thumb:hover { background: #9eafab; }
