@@ -17,6 +17,10 @@ backend/checkpoints/
 *.pth
 *.onnx
 
+# Publish trained VayuNetra models
+!backend/checkpoints/
+!backend/checkpoints/*.pt
+
 # Raw / generated datasets
 backend/data/raw/
 backend/data/processed/
