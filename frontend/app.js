@@ -1,692 +1,72 @@
+/* ============================================================
+   VAYUNETRA — VAYU DRISHTI
+   SAFE FRONTEND CONTROLLER
+   ============================================================ */
+
 const API_BASE = "http://localhost:8000";
 
-const $ = (id) => document.getElementById(id);
-
-const STOPS = [
-    { t: 0.00, c: [10, 10, 14] },
-    { t: 0.35, c: [90, 90, 90] },
-    { t: 0.55, c: [220, 220, 220] },
-    { t: 0.65, c: [255, 255, 0] },
-    { t: 0.75, c: [255, 140, 0] },
-    { t: 0.85, c: [255, 0, 0] },
-    { t: 1.00, c: [160, 0, 200] }
-];
+const $ = id => document.getElementById(id);
 
 
-function color(v) {
-    v = Math.max(0, Math.min(1, Number(v) || 0));
+/* ============================================================
+   SAFE DOM
+   ============================================================ */
 
-    for (let i = 0; i < STOPS.length - 1; i++) {
-        const a = STOPS[i];
-        const b = STOPS[i + 1];
-
-        if (v >= a.t && v <= b.t) {
-            const f = (v - a.t) / (b.t - a.t || 1);
-
-            return a.c.map((x, j) =>
-                Math.round(x + f * (b.c[j] - x))
-            );
-        }
-    }
-
-    return STOPS[STOPS.length - 1].c;
-}
-
-
-function buildLegend() {
-    const legend = $("legendBar");
-
-    if (!legend) return;
-
-    legend.innerHTML = "";
-
-    for (let i = 0; i <= 50; i++) {
-        const div = document.createElement("div");
-        const c = color(i / 50);
-
-        div.style.background = `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
-
-        legend.appendChild(div);
+function text(id, value) {
+    const el = $(id);
+    if (el) {
+        el.textContent = value ?? "—";
     }
 }
 
+function width(id, value) {
+    const el = $(id);
+    if (!el) return;
 
-function draw(frames) {
-    if (!Array.isArray(frames) || frames.length === 0) {
-        return;
-    }
-
-    const frame = frames[frames.length - 1];
-
-    if (!Array.isArray(frame) || frame.length === 0) {
-        return;
-    }
-
-    const canvas = $("frameCanvas");
-
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-
-    const size = frame.length;
-
-    canvas.width = size;
-    canvas.height = size;
-
-    const imageData = ctx.createImageData(size, size);
-
-    for (let y = 0; y < size; y++) {
-        for (let x = 0; x < size; x++) {
-
-            const value = frame[y][x];
-
-            const rgb = color(value);
-
-            const index = (y * size + x) * 4;
-
-            imageData.data[index] = rgb[0];
-            imageData.data[index + 1] = rgb[1];
-            imageData.data[index + 2] = rgb[2];
-            imageData.data[index + 3] = 255;
-        }
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-
-    $("frameSource").textContent =
-        `SYNTHETIC DEMO · FRAME ${frames.length}`;
-}
-
-
-function uploadPreview(file) {
-
-    if (!file) return;
-
-    const image = new Image();
-
-    image.onload = function () {
-
-        const canvas = $("frameCanvas");
-        const ctx = canvas.getContext("2d");
-
-        canvas.width = 64;
-        canvas.height = 64;
-
-        ctx.clearRect(0, 0, 64, 64);
-
-        ctx.drawImage(
-            image,
-            0,
-            0,
-            64,
-            64
-        );
-
-        URL.revokeObjectURL(image.src);
-    };
-
-    image.src = URL.createObjectURL(file);
-}
-
-
-function renderBars(containerId, probabilities) {
-
-    const box = $(containerId);
-
-    if (!box) return;
-
-    box.innerHTML = "";
-
-    if (!probabilities) return;
-
-    const entries = Object.entries(probabilities);
-
-    if (entries.length === 0) return;
-
-    entries
-        .sort((a, b) => Number(b[1]) - Number(a[1]))
-        .forEach(([label, probability]) => {
-
-            const pct = Math.max(
-                0,
-                Math.min(
-                    100,
-                    Number(probability) * 100
-                )
-            );
-
-            const row = document.createElement("div");
-
-            row.className = "bar-row";
-
-            row.innerHTML = `
-                <div class="bar-top">
-                    <span>${escapeHtml(label)}</span>
-                    <span>${pct.toFixed(1)}%</span>
-                </div>
-
-                <div class="bar-bg">
-                    <div
-                        class="bar-fill"
-                        style="width:${pct.toFixed(1)}%"
-                    ></div>
-                </div>
-            `;
-
-            box.appendChild(row);
-        });
-}
-
-
-function escapeHtml(value) {
-
-    return String(value)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
-
-
-function clearUI() {
-
-    $("presence").textContent = "—";
-
-    $("presenceBar").style.width = "0%";
-
-    $("presenceState").textContent = "WAITING";
-
-    $("predCategory").textContent = "—";
-
-    $("categoryBars").innerHTML = "";
-
-    $("intensityValue").textContent = "—";
-
-    $("intensityNote").textContent =
-        "No intensity estimate available.";
-
-    $("predTrend").textContent = "—";
-
-    $("trendBars").innerHTML = "";
-
-    $("trackDelta").textContent = "—";
-}
-
-
-function renderPrediction(pred) {
-
-    if (!pred) return;
-
-    // -----------------------------
-    // DETECTION
-    // -----------------------------
-
-    const presence = Number(
-        pred?.identification?.cyclone_present_probability ?? 0
+    const n = Math.max(
+        0,
+        Math.min(100, Number(value) || 0)
     );
 
-    const threshold = Number(
-        pred?.identification?.threshold ?? 0.5
-    );
+    el.style.width = `${n}%`;
+}
 
-    const cyclonePresent =
-        pred?.identification?.cyclone_present ??
-        (presence >= threshold);
-
-    $("presence").textContent =
-        `${(presence * 100).toFixed(1)}%`;
-
-    $("presenceBar").style.width =
-        `${Math.min(100, Math.max(0, presence * 100))}%`;
-
-    $("threshold").textContent =
-        threshold.toFixed(2);
-
-    $("presenceState").textContent =
-        cyclonePresent ? "DETECTED" : "CLEAR";
-
-    // FIXED:
-    // var(--green) -> var(--seafoam)
-    // var(--dim)   -> var(--text-dim)
-
-    $("presenceState").style.color =
-        cyclonePresent
-            ? "var(--seafoam)"
-            : "var(--text-dim)";
-
-
-    // -----------------------------
-    // CLASSIFICATION
-    // -----------------------------
-
-    if (cyclonePresent) {
-
-        $("predCategory").textContent =
-            pred?.classification?.predicted_category ?? "—";
-
-        renderBars(
-            "categoryBars",
-            pred?.classification?.category_probabilities ?? {}
-        );
-
-    } else {
-
-        $("predCategory").textContent =
-            "No Cyclone Detected";
-
-        $("categoryBars").innerHTML =
-            `<p class="note">
-                Category suppressed below detection threshold.
-            </p>`;
-    }
-
-
-    // -----------------------------
-    // INTENSITY
-    // -----------------------------
-
-    const intensity =
-        pred?.intensity?.normalized_intensity;
-
-    if (typeof intensity === "number") {
-
-        $("intensityValue").textContent =
-            intensity.toFixed(4);
-
-    } else {
-
-        $("intensityValue").textContent =
-            "—";
-    }
-
-    $("intensityNote").textContent =
-        pred?.intensity?.note ??
-        "Normalized model output; not a wind-speed measurement.";
-
-
-    // -----------------------------
-    // TEMPORAL PREDICTION
-    // -----------------------------
-
-    const prediction =
-        pred?.prediction ?? {};
-
-    if (prediction.reliable !== true) {
-
-        $("predTrend").textContent =
-            "INSUFFICIENT DATA";
-
-        $("trendBars").innerHTML =
-            `<p class="note">
-                Upload 2+ chronological frames
-                for temporal analysis.
-            </p>`;
-
-        $("trackDelta").textContent =
-            "Unavailable";
-
-        return;
-    }
-
-
-    const trend =
-        prediction.trend ?? "—";
-
-    $("predTrend").textContent =
-        trend;
-
-    renderBars(
-        "trendBars",
-        prediction.trend_probabilities ?? {}
-    );
-
-
-    const delta =
-        prediction.predicted_next_step_track_delta;
-
-    if (
-        Array.isArray(delta) &&
-        delta.length >= 2 &&
-        Number.isFinite(Number(delta[0])) &&
-        Number.isFinite(Number(delta[1]))
-    ) {
-
-        $("trackDelta").textContent =
-            `(${Number(delta[0]).toFixed(3)}, ${Number(delta[1]).toFixed(3)})`;
-
-    } else {
-
-        $("trackDelta").textContent =
-            "Unavailable";
+function html(id, value) {
+    const el = $(id);
+    if (el) {
+        el.innerHTML = value || "";
     }
 }
 
 
-function setStatus(message, success = false) {
+/* ============================================================
+   STATUS
+   ============================================================ */
 
-    const status = $("statusText");
+function status(message, good = false) {
 
-    status.textContent = message;
+    const el = $("statusText");
 
-    // FIXED:
-    // var(--green) -> var(--seafoam)
-    // var(--muted) -> var(--text-muted)
+    if (!el) return;
 
-    status.style.color =
-        success
-            ? "var(--seafoam)"
-            : "var(--text-muted)";
+    el.textContent = message;
+
+    el.style.color =
+        good
+            ? "#159b96"
+            : "#71807d";
 }
 
 
-async function runDemo() {
+/* ============================================================
+   CLOCK
+   ============================================================ */
 
-    clearUI();
+function clock() {
 
-    setStatus(
-        "Fetching demonstration sequence…"
-    );
+    const el = $("clock");
 
-    try {
-
-        const response =
-            await fetch(
-                `${API_BASE}/demo_sequence`
-            );
-
-        if (!response.ok) {
-
-            throw new Error(
-                `demo_sequence failed: ${response.status}`
-            );
-        }
-
-        const demo =
-            await response.json();
-
-
-        // Draw satellite frame
-
-        draw(demo.frames);
-
-
-        // Ground truth
-
-        $("gtCategory").textContent =
-            demo.true_category ?? "—";
-
-        $("gtTrend").textContent =
-            demo.true_trend ?? "—";
-
-        $("framesReceived").textContent =
-            demo.frames?.length ?? "—";
-
-        $("temporalMode").textContent =
-            (demo.frames?.length || 0) > 1
-                ? "MULTI-FRAME"
-                : "SINGLE";
-
-        $("sequenceTag").textContent =
-            "DEMO SEQUENCE";
-
-
-        setStatus(
-            "Running local inference…"
-        );
-
-
-        // Prediction
-
-        const predictionResponse =
-            await fetch(
-                `${API_BASE}/predict`,
-                {
-                    method: "POST",
-
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
-
-                    body: JSON.stringify({
-                        frames: demo.frames
-                    })
-                }
-            );
-
-
-        if (!predictionResponse.ok) {
-
-            throw new Error(
-                `predict failed: ${predictionResponse.status}`
-            );
-        }
-
-
-        const prediction =
-            await predictionResponse.json();
-
-
-        renderPrediction(prediction);
-
-
-        setStatus(
-            "Models responding · demo complete",
-            true
-        );
-
-
-    } catch (error) {
-
-        console.error(
-            "Demo error:",
-            error
-        );
-
-        setStatus(
-            "Backend unavailable — check localhost:8000"
-        );
-
-        $("systemState").textContent =
-            "NODE OFFLINE";
-
-        $("systemDot").style.background =
-            "var(--red)";
-    }
-}
-
-
-async function processUpload() {
-
-    const input =
-        $("imageInput");
-
-    const files =
-        input.files;
-
-
-    if (!files || files.length === 0) {
-
-        setStatus(
-            "Select at least one image."
-        );
-
-        return;
-    }
-
-
-    clearUI();
-
-    setStatus(
-        `Processing ${files.length} image(s)…`
-    );
-
-
-    const formData =
-        new FormData();
-
-
-    for (let i = 0; i < files.length; i++) {
-
-        formData.append(
-            "images",
-            files[i]
-        );
-    }
-
-
-    try {
-
-        const response =
-            await fetch(
-                `${API_BASE}/predict_image`,
-                {
-                    method: "POST",
-                    body: formData
-                }
-            );
-
-
-        if (!response.ok) {
-
-            const errorText =
-                await response.text();
-
-            throw new Error(
-                errorText
-            );
-        }
-
-
-        const prediction =
-            await response.json();
-
-
-        // Show last uploaded image
-
-        uploadPreview(
-            files[files.length - 1]
-        );
-
-
-        renderPrediction(
-            prediction
-        );
-
-
-        $("frameSource").textContent =
-            `EXTERNAL IMAGE · ${files.length} FRAME(S)`;
-
-
-        $("gtCategory").textContent =
-            "— external image";
-
-        $("gtTrend").textContent =
-            "—";
-
-        $("framesReceived").textContent =
-            prediction.frames_received ??
-            files.length;
-
-        $("temporalMode").textContent =
-            files.length > 1
-                ? "MULTI-FRAME"
-                : "SINGLE";
-
-        $("sequenceTag").textContent =
-            "UPLOAD";
-
-
-        setStatus(
-            "Upload processed",
-            true
-        );
-
-
-    } catch (error) {
-
-        console.error(
-            "Upload error:",
-            error
-        );
-
-        setStatus(
-            "Upload failed — check backend."
-        );
-    }
-}
-
-
-async function checkBackend() {
-
-    try {
-
-        const response =
-            await fetch(
-                `${API_BASE}/health`
-            );
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                "Backend health check failed"
-            );
-        }
-
-
-        const data =
-            await response.json();
-
-
-        $("systemState").textContent =
-            data?.status
-                ? String(data.status).toUpperCase()
-                : "NODE ONLINE";
-
-
-        $("systemDetail").textContent =
-            "localhost:8000";
-
-
-        // FIXED:
-        // var(--green) -> var(--seafoam)
-
-        $("systemDot").style.background =
-            "var(--seafoam)";
-
-
-        setStatus(
-            "Backend online",
-            true
-        );
-
-
-    } catch (error) {
-
-        console.error(
-            "Health check:",
-            error
-        );
-
-        $("systemState").textContent =
-            "NODE OFFLINE";
-
-        $("systemDetail").textContent =
-            "localhost:8000";
-
-        $("systemDot").style.background =
-            "var(--red)";
-
-        setStatus(
-            "Backend offline"
-        );
-    }
-}
-
-
-function updateClock() {
+    if (!el) return;
 
     const now =
         new Intl.DateTimeFormat(
@@ -700,50 +80,1307 @@ function updateClock() {
             }
         ).format(new Date());
 
-
-    $("clock").textContent =
-        `${now} IST`;
+    el.textContent = `${now} IST`;
 }
 
 
-// -----------------------------
-// INITIALIZATION
-// -----------------------------
+/* ============================================================
+   SATELLITE COLOURS
+   ============================================================ */
 
-document.addEventListener(
-    "DOMContentLoaded",
-    function () {
+const STOPS = [
+    [0.00, [10, 10, 14]],
+    [0.35, [90, 90, 90]],
+    [0.55, [220, 220, 220]],
+    [0.65, [255, 255, 0]],
+    [0.75, [255, 140, 0]],
+    [0.85, [255, 0, 0]],
+    [1.00, [160, 0, 200]]
+];
 
-        buildLegend();
+function getColor(value) {
 
-        updateClock();
+    let v = Number(value);
 
-        setInterval(
-            updateClock,
-            1000
+    if (!Number.isFinite(v)) {
+        v = 0;
+    }
+
+    v = Math.max(0, Math.min(1, v));
+
+    for (
+        let i = 0;
+        i < STOPS.length - 1;
+        i++
+    ) {
+
+        const a = STOPS[i];
+        const b = STOPS[i + 1];
+
+        if (
+            v >= a[0] &&
+            v <= b[0]
+        ) {
+
+            const ratio =
+                (v - a[0]) /
+                (b[0] - a[0]);
+
+            return [
+                Math.round(
+                    a[1][0] +
+                    ratio *
+                    (b[1][0] - a[1][0])
+                ),
+
+                Math.round(
+                    a[1][1] +
+                    ratio *
+                    (b[1][1] - a[1][1])
+                ),
+
+                Math.round(
+                    a[1][2] +
+                    ratio *
+                    (b[1][2] - a[1][2])
+                )
+            ];
+        }
+    }
+
+    return [160, 0, 200];
+}
+
+
+/* ============================================================
+   LEGEND
+   ============================================================ */
+
+function buildLegend() {
+
+    const el = $("legendBar");
+
+    if (!el) return;
+
+    el.innerHTML = "";
+
+    for (let i = 0; i < 32; i++) {
+
+        const block =
+            document.createElement("div");
+
+        const [r, g, b] =
+            getColor(i / 31);
+
+        block.style.background =
+            `rgb(${r},${g},${b})`;
+
+        el.appendChild(block);
+    }
+}
+
+
+/* ============================================================
+   DRAW SATELLITE FRAME
+   ============================================================ */
+
+function drawFrame(frames) {
+
+    if (
+        !Array.isArray(frames) ||
+        frames.length === 0
+    ) {
+        return;
+    }
+
+    const canvas =
+        $("frameCanvas");
+
+    if (!canvas) return;
+
+    const frame =
+        frames[frames.length - 1];
+
+    if (
+        !Array.isArray(frame) ||
+        frame.length === 0
+    ) {
+        return;
+    }
+
+    const ctx =
+        canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    const height =
+        frame.length;
+
+    const width =
+        Array.isArray(frame[0])
+            ? frame[0].length
+            : 128;
+
+    /*
+     * Safety guard.
+     * Never allow a malformed backend response
+     * to allocate a ridiculous canvas.
+     */
+
+    if (
+        width <= 0 ||
+        height <= 0 ||
+        width > 1024 ||
+        height > 1024
+    ) {
+        console.warn(
+            "Invalid satellite frame dimensions:",
+            width,
+            height
+        );
+
+        return;
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const image =
+        ctx.createImageData(
+            width,
+            height
+        );
+
+    for (
+        let y = 0;
+        y < height;
+        y++
+    ) {
+
+        const row = frame[y];
+
+        if (!Array.isArray(row)) {
+            continue;
+        }
+
+        for (
+            let x = 0;
+            x < width;
+            x++
+        ) {
+
+            const value =
+                Number(row[x] ?? 0);
+
+            const [r, g, b] =
+                getColor(value);
+
+            const index =
+                (y * width + x) * 4;
+
+            image.data[index] = r;
+            image.data[index + 1] = g;
+            image.data[index + 2] = b;
+            image.data[index + 3] = 255;
+        }
+    }
+
+    ctx.putImageData(
+        image,
+        0,
+        0
+    );
+
+    text(
+        "frameSource",
+        `SATELLITE · ${frames.length} FRAME(S)`
+    );
+}
+
+
+/* ============================================================
+   FETCH WITH TIMEOUT
+   ============================================================ */
+
+async function fetchWithTimeout(
+    url,
+    options = {},
+    timeout = 10000
+) {
+
+    const controller =
+        new AbortController();
+
+    const timer =
+        setTimeout(
+            () => controller.abort(),
+            timeout
+        );
+
+    try {
+
+        const response =
+            await fetch(
+                url,
+                {
+                    ...options,
+                    signal:
+                        controller.signal
+                }
+            );
+
+        return response;
+
+    } finally {
+
+        clearTimeout(timer);
+    }
+}
+
+
+/* ============================================================
+   BACKEND HEALTH
+   ============================================================ */
+
+async function checkBackend() {
+
+    status(
+        "Checking local inference node…"
+    );
+
+    try {
+
+        const response =
+            await fetchWithTimeout(
+                `${API_BASE}/health`,
+                {
+                    cache: "no-store"
+                },
+                3000
+            );
+
+        if (!response.ok) {
+            throw new Error(
+                `HTTP ${response.status}`
+            );
+        }
+
+        const data =
+            await response.json();
+
+        text(
+            "systemState",
+            data.status
+                ? String(
+                    data.status
+                ).toUpperCase()
+                : "NODE ONLINE"
+        );
+
+        const dot =
+            $("systemDot");
+
+        if (dot) {
+            dot.style.background =
+                "#239b70";
+        }
+
+        status(
+            "Backend online",
+            true
+        );
+
+    } catch (error) {
+
+        console.warn(
+            "Backend health check failed:",
+            error
+        );
+
+        text(
+            "systemState",
+            "NODE OFFLINE"
+        );
+
+        const dot =
+            $("systemDot");
+
+        if (dot) {
+            dot.style.background =
+                "#d54b4b";
+        }
+
+        status(
+            "Backend unavailable — check localhost:8000"
+        );
+    }
+}
+
+
+/* ============================================================
+   CLEAR RESULTS
+   ============================================================ */
+
+function clearResults() {
+
+    text(
+        "presence",
+        "—"
+    );
+
+    width(
+        "presenceBar",
+        0
+    );
+
+    text(
+        "presenceState",
+        "WAITING"
+    );
+
+    text(
+        "predCategory",
+        "—"
+    );
+
+    text(
+        "predCategorySecondary",
+        "—"
+    );
+
+    text(
+        "predTrend",
+        "—"
+    );
+
+    text(
+        "intensityValue",
+        "—"
+    );
+
+    text(
+        "trackDelta",
+        "—"
+    );
+
+    text(
+        "activeCyclones",
+        "—"
+    );
+
+    text(
+        "cycloneCategory",
+        "Awaiting analysis"
+    );
+
+    text(
+        "cycloneWind",
+        "—"
+    );
+
+    text(
+        "cycloneLat",
+        "—"
+    );
+
+    text(
+        "framesReceived",
+        "—"
+    );
+
+    text(
+        "framesReceivedSecondary",
+        "—"
+    );
+
+    text(
+        "temporalMode",
+        "—"
+    );
+
+    text(
+        "temporalModeBottom",
+        "—"
+    );
+
+    text(
+        "gtCategory",
+        "—"
+    );
+
+    text(
+        "gtTrend",
+        "—"
+    );
+
+    text(
+        "intensityNote",
+        "Waiting for model inference."
+    );
+
+    html(
+        "categoryBars",
+        ""
+    );
+
+    html(
+        "trendBars",
+        ""
+    );
+}
+
+
+/* ============================================================
+   ESCAPE HTML
+   ============================================================ */
+
+function escapeHTML(value) {
+
+    return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+
+/* ============================================================
+   BARS
+   ============================================================ */
+
+function bars(
+    containerId,
+    probabilities
+) {
+
+    const container =
+        $(containerId);
+
+    if (!container) return;
+
+    container.innerHTML = "";
+
+    if (
+        !probabilities ||
+        typeof probabilities !== "object"
+    ) {
+        return;
+    }
+
+    const entries =
+        Object.entries(probabilities)
+            .sort(
+                (a, b) =>
+                    Number(b[1]) -
+                    Number(a[1])
+            );
+
+    for (
+        const [label, value]
+        of entries
+    ) {
+
+        const pct =
+            Math.max(
+                0,
+                Math.min(
+                    100,
+                    Number(value) * 100
+                )
+            );
+
+        const row =
+            document.createElement("div");
+
+        row.className =
+            "bar-row";
+
+        row.innerHTML = `
+            <div class="top">
+                <span>${escapeHTML(label)}</span>
+                <span class="pct">
+                    ${pct.toFixed(1)}%
+                </span>
+            </div>
+
+            <div class="bar-bg">
+                <div
+                    class="bar-fill"
+                    style="width:${pct}%"
+                ></div>
+            </div>
+        `;
+
+        container.appendChild(row);
+    }
+}
+
+
+/* ============================================================
+   RENDER PREDICTION
+   ============================================================ */
+
+function renderPrediction(data) {
+
+    if (!data) return;
+
+    console.log(
+        "Prediction:",
+        data
+    );
+
+    const identification =
+        data.identification || {};
+
+    const classification =
+        data.classification || {};
+
+    const intensity =
+        data.intensity || {};
+
+    const prediction =
+        data.prediction || {};
+
+
+    /* DETECTION */
+
+    const probability =
+        Number(
+            identification
+                .cyclone_present_probability
+                ?? 0
+        );
+
+    const detected =
+        identification.cyclone_present
+            !== undefined
+            ? Boolean(
+                identification.cyclone_present
+            )
+            : probability >= 0.5;
+
+
+    text(
+        "presence",
+        `${(
+            probability * 100
+        ).toFixed(1)}%`
+    );
+
+    width(
+        "presenceBar",
+        probability * 100
+    );
+
+    text(
+        "presenceState",
+        detected
+            ? "DETECTED"
+            : "CLEAR"
+    );
+
+
+    /* CATEGORY */
+
+    const category =
+        classification
+            .predicted_category
+            ?? "—";
+
+    text(
+        "predCategory",
+        detected
+            ? category
+            : "No Cyclone Detected"
+    );
+
+    text(
+        "predCategorySecondary",
+        detected
+            ? category
+            : "CLEAR SCENE"
+    );
+
+
+    if (detected) {
+
+        bars(
+            "categoryBars",
+            classification
+                .category_probabilities
+                ?? {}
+        );
+
+    } else {
+
+        html(
+            "categoryBars",
+            `
+            <div class="note">
+                Category suppressed below
+                detection threshold.
+            </div>
+            `
+        );
+    }
+
+
+    /* INTENSITY */
+
+    const normalized =
+        intensity.normalized_intensity;
+
+    if (
+        typeof normalized === "number" &&
+        Number.isFinite(normalized)
+    ) {
+
+        text(
+            "intensityValue",
+            normalized.toFixed(4)
+        );
+    }
+
+
+    text(
+        "intensityNote",
+        intensity.note
+            ??
+        "Normalized model output."
+    );
+
+
+    /* TEMPORAL */
+
+    if (
+        prediction.reliable === true
+    ) {
+
+        text(
+            "predTrend",
+            prediction.trend
+                ?? "—"
+        );
+
+        bars(
+            "trendBars",
+            prediction
+                .trend_probabilities
+                ?? {}
         );
 
 
-        $("demoBtn").addEventListener(
+        const delta =
+            prediction
+                .predicted_next_step_track_delta;
+
+
+        if (
+            Array.isArray(delta) &&
+            delta.length >= 2
+        ) {
+
+            const dx =
+                Number(delta[0]);
+
+            const dy =
+                Number(delta[1]);
+
+            if (
+                Number.isFinite(dx) &&
+                Number.isFinite(dy)
+            ) {
+
+                text(
+                    "trackDelta",
+                    `(${dx.toFixed(3)}, ${dy.toFixed(3)})`
+                );
+            }
+        }
+
+    } else {
+
+        text(
+            "predTrend",
+            "INSUFFICIENT DATA"
+        );
+
+        text(
+            "trackDelta",
+            "Unavailable"
+        );
+
+        html(
+            "trendBars",
+            `
+            <div class="note">
+                Multiple chronological frames
+                are required.
+            </div>
+            `
+        );
+    }
+
+
+    /* PRIMARY CARD */
+
+    text(
+        "activeCyclones",
+        detected
+            ? "01"
+            : "00"
+    );
+
+    text(
+        "cycloneCategory",
+        detected
+            ? category
+            : "No cyclone detected"
+    );
+}
+
+
+/* ============================================================
+   DEMO
+   ============================================================ */
+
+async function runDemo() {
+
+    clearResults();
+
+    status(
+        "Loading satellite demonstration…"
+    );
+
+    try {
+
+        const response =
+            await fetchWithTimeout(
+                `${API_BASE}/demo_sequence`,
+                {
+                    cache: "no-store"
+                },
+                10000
+            );
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                `Demo HTTP ${response.status}`
+            );
+        }
+
+
+        const demo =
+            await response.json();
+
+
+        console.log(
+            "Demo response:",
+            demo
+        );
+
+
+        if (
+            !Array.isArray(
+                demo.frames
+            )
+        ) {
+
+            throw new Error(
+                "Backend returned invalid frames."
+            );
+        }
+
+
+        drawFrame(
+            demo.frames
+        );
+
+
+        const count =
+            demo.frames.length;
+
+
+        text(
+            "framesReceived",
+            count
+        );
+
+        text(
+            "framesReceivedSecondary",
+            count
+        );
+
+        text(
+            "temporalMode",
+            count > 1
+                ? "MULTI-FRAME"
+                : "SINGLE"
+        );
+
+        text(
+            "temporalModeBottom",
+            count > 1
+                ? "MULTI-FRAME"
+                : "SINGLE"
+        );
+
+        text(
+            "sequenceTag",
+            "DEMO SEQUENCE"
+        );
+
+
+        text(
+            "gtCategory",
+            demo.true_category
+                ?? "—"
+        );
+
+        text(
+            "gtTrend",
+            demo.true_trend
+                ?? "—"
+        );
+
+
+        status(
+            "Running local inference…"
+        );
+
+
+        /*
+         * IMPORTANT:
+         * Timeout prevents a broken backend/model
+         * from freezing the user experience.
+         */
+
+        const predictionResponse =
+            await fetchWithTimeout(
+                `${API_BASE}/predict`,
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body:
+                        JSON.stringify({
+                            frames:
+                                demo.frames
+                        })
+                },
+                15000
+            );
+
+
+        if (!predictionResponse.ok) {
+
+            throw new Error(
+                `Prediction HTTP ${predictionResponse.status}`
+            );
+        }
+
+
+        const prediction =
+            await predictionResponse.json();
+
+
+        renderPrediction(
+            prediction
+        );
+
+
+        status(
+            "Analysis complete",
+            true
+        );
+
+
+    } catch (error) {
+
+        console.error(
+            "Demo failed:",
+            error
+        );
+
+
+        if (
+            error.name ===
+            "AbortError"
+        ) {
+
+            status(
+                "Backend request timed out — page remains responsive."
+            );
+
+        } else {
+
+            status(
+                "Analysis failed — check backend console."
+            );
+        }
+    }
+}
+
+
+/* ============================================================
+   IMAGE UPLOAD
+   ============================================================ */
+
+function previewImage(file) {
+
+    if (!file) return;
+
+    const canvas =
+        $("frameCanvas");
+
+    if (!canvas) return;
+
+    const image =
+        new Image();
+
+    const url =
+        URL.createObjectURL(file);
+
+
+    image.onload = () => {
+
+        const ctx =
+            canvas.getContext("2d");
+
+        if (!ctx) {
+            URL.revokeObjectURL(url);
+            return;
+        }
+
+        canvas.width =
+            image.naturalWidth || 128;
+
+        canvas.height =
+            image.naturalHeight || 128;
+
+        ctx.drawImage(
+            image,
+            0,
+            0,
+            canvas.width,
+            canvas.height
+        );
+
+        URL.revokeObjectURL(url);
+    };
+
+
+    image.onerror = () => {
+        URL.revokeObjectURL(url);
+    };
+
+
+    image.src = url;
+}
+
+
+async function processUpload() {
+
+    const input =
+        $("imageInput");
+
+    if (!input) {
+
+        status(
+            "Upload control not found."
+        );
+
+        return;
+    }
+
+
+    const files =
+        Array.from(
+            input.files || []
+        );
+
+
+    if (files.length === 0) {
+
+        status(
+            "Select a satellite image first."
+        );
+
+        return;
+    }
+
+
+    previewImage(
+        files[files.length - 1]
+    );
+
+
+    status(
+        `Processing ${files.length} image(s)…`
+    );
+
+
+    const form =
+        new FormData();
+
+
+    /*
+     * Keep the same field name used by
+     * the existing backend.
+     */
+
+    for (
+        const file of files
+    ) {
+
+        form.append(
+            "images",
+            file
+        );
+    }
+
+
+    try {
+
+        const response =
+            await fetchWithTimeout(
+                `${API_BASE}/predict_image`,
+                {
+                    method: "POST",
+                    body: form
+                },
+                20000
+            );
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                `Upload HTTP ${response.status}`
+            );
+        }
+
+
+        const result =
+            await response.json();
+
+
+        renderPrediction(
+            result
+        );
+
+
+        const received =
+            result.frames_received
+                ?? files.length;
+
+
+        text(
+            "framesReceived",
+            received
+        );
+
+        text(
+            "framesReceivedSecondary",
+            received
+        );
+
+        text(
+            "temporalMode",
+            files.length > 1
+                ? "MULTI-FRAME"
+                : "SINGLE"
+        );
+
+
+        text(
+            "sequenceTag",
+            "UPLOAD"
+        );
+
+
+        text(
+            "gtCategory",
+            "External image"
+        );
+
+
+        text(
+            "gtTrend",
+            "—"
+        );
+
+
+        text(
+            "frameSource",
+            `UPLOAD · ${files.length} IMAGE(S)`
+        );
+
+
+        status(
+            "Image analysis complete",
+            true
+        );
+
+
+    } catch (error) {
+
+        console.error(
+            "Upload error:",
+            error
+        );
+
+
+        if (
+            error.name ===
+            "AbortError"
+        ) {
+
+            status(
+                "Upload timed out."
+            );
+
+        } else {
+
+            status(
+                "Upload failed — check backend console."
+            );
+        }
+    }
+}
+
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+
+function setupButtons() {
+
+    const demo =
+        $("demoBtn");
+
+    if (demo) {
+
+        demo.addEventListener(
             "click",
             runDemo
         );
+    }
 
 
-        $("processBtn").addEventListener(
+    const process =
+        $("processBtn");
+
+    if (process) {
+
+        process.addEventListener(
             "click",
             processUpload
         );
+    }
 
 
-        $("refreshBtn").addEventListener(
+    const refresh =
+        $("refreshBtn");
+
+    if (refresh) {
+
+        refresh.addEventListener(
             "click",
             checkBackend
         );
+    }
 
+
+    const settings =
+        $("settingsBtn");
+
+    if (settings) {
+
+        settings.addEventListener(
+            "click",
+            () => {
+
+                status(
+                    "Settings module coming soon."
+                );
+            }
+        );
+    }
+
+
+    const input =
+        $("imageInput");
+
+    if (input) {
+
+        input.addEventListener(
+            "change",
+            () => {
+
+                const files =
+                    Array.from(
+                        input.files || []
+                    );
+
+                if (
+                    files.length > 0
+                ) {
+
+                    previewImage(
+                        files[files.length - 1]
+                    );
+
+                    text(
+                        "frameSource",
+                        `READY · ${files.length} IMAGE(S)`
+                    );
+
+                    status(
+                        `${files.length} image(s) ready`
+                    );
+                }
+            }
+        );
+    }
+}
+
+
+/* ============================================================
+   START
+   ============================================================ */
+
+document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+
+        console.log(
+            "Vayu Drishti frontend loaded."
+        );
+
+        buildLegend();
+
+        clock();
+
+        setInterval(
+            clock,
+            1000
+        );
+
+        setupButtons();
+
+        /*
+         * Only health check automatically.
+         * NO demo inference on page load.
+         */
 
         checkBackend();
-
-        runDemo();
     }
 );

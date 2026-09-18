@@ -1,94 +1,329 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>VayuNetra — Cyclone Intelligence Console</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vayu Drishti — VayuNetra</title>
 <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
-<div class="shell">
-<header class="topbar">
-  <div class="brand"><div class="mark">VN</div><div><b>VAYUNETRA</b><small>CYCLONE INTELLIGENCE CONSOLE</small></div></div>
-  <div class="mission"><i></i> LOCAL INFERENCE NODE <em></em> <span id="clock">--:--:-- IST</span></div>
-  <div class="actions"><span class="env">DEVELOPMENT</span><button id="refreshBtn">↻</button></div>
-</header>
 
-<section class="hero">
-  <div><label>SIH26070 · MINISTRY OF EARTH SCIENCES</label><h1>DashBoard</h1><p>Satellite-frame inspection, cyclone identification, category classification and short-horizon temporal analysis.</p></div>
-  <div class="node"><i id="systemDot"></i><div><b id="systemState">CHECKING NODE</b><small id="systemDetail">localhost:8000</small></div></div>
-</section>
+<div class="page-shell">
 
-<section class="toolbar">
-  <div>
-    <button class="primary" id="demoBtn">▶ Run Demo Sequence</button>
-    <label class="btn">＋ Load Satellite Images<input id="imageInput" type="file" accept="image/*" multiple hidden></label>
-    <button class="btn" id="processBtn">Process Upload</button>
-  </div>
-  <span id="statusText">Ready</span>
-</section>
+    <!-- TOP NAV -->
+    <header class="topbar">
+        <div class="brand">
+            <div class="brand-mark">VN</div>
+            <div>
+                <div class="brand-name">VAYUNETRA</div>
+                <div class="brand-sub">CYCLONE INTELLIGENCE CONSOLE</div>
+            </div>
+        </div>
 
-<main class="layout">
-<section class="main">
-<article class="card viewport-card">
-  <div class="head"><div><label>01 / OBSERVATION</label><h2>Satellite Frame</h2></div><span id="frameSource">SYNTHETIC DEMO · FRAME —</span></div>
-  <div class="viewport">
-    <canvas id="frameCanvas" width="64" height="64"></canvas>
-    <div class="scan"></div><div class="cross"></div>
-    <span class="vl tl">IR / BD-CURVE</span><span class="vl tr">64 × 64</span>
-    <span class="vl bl">LAT — / LON —</span><span class="vl br">FRAME READY</span>
-  </div>
-  <div class="legend" id="legendBar"></div>
-  <div class="legend-label"><span>WARM / CLEAR</span><span>COLD CONVECTION</span></div>
-</article>
+        <div class="node-status">
+            <span class="status-dot" id="systemDot"></span>
+            <span id="systemState">LOCAL INFERENCE NODE</span>
+            <span class="divider"></span>
+            <span id="clock">--:--:-- IST</span>
+        </div>
 
-<article class="card">
-  <div class="head"><div><label>02 / CONTEXT</label><h2>Sequence Context</h2></div><span class="tag" id="sequenceTag">NO SEQUENCE</span></div>
-  <div class="context">
-    <div><span>Ground-truth category</span><b id="gtCategory">—</b></div>
-    <div><span>Ground-truth trend</span><b id="gtTrend">—</b></div>
-    <div><span>Frames received</span><b id="framesReceived">—</b></div>
-    <div><span>Temporal mode</span><b id="temporalMode">—</b></div>
-  </div>
-</article>
-</section>
+        <div class="top-actions">
+            <span class="environment">DEVELOPMENT</span>
+            <button id="refreshBtn" class="icon-btn" title="Refresh backend status">↻</button>
+        </div>
+    </header>
 
-<aside class="side">
-<article class="card detect">
-  <div class="head"><div><label>03 / DETECTION</label><h2>Cyclone Presence</h2></div><span id="presenceState" class="pill">WAITING</span></div>
-  <div class="confidence" id="presence">—</div><small class="muted">MODEL CONFIDENCE</small>
-  <div class="meter"><div id="presenceBar"></div></div>
-  <div class="threshold"><span>Decision threshold</span><b id="threshold">0.50</b></div>
-</article>
+    <!-- HERO -->
+    <section class="hero">
+        <div class="hero-content">
+            <div class="eyebrow">REAL-TIME CYCLONE MONITORING &amp; ANALYSIS</div>
 
-<article class="card">
-  <div class="head"><div><label>04 / CLASSIFICATION</label><h2>Storm Category</h2></div></div>
-  <div class="big" id="predCategory">—</div><div id="categoryBars" class="bars"></div>
-</article>
+            <h1>Vayu Drishti</h1>
 
-<article class="card">
-  <div class="head"><div><label>05 / INTENSITY</label><h2>Current Estimate</h2></div></div>
-  <div class="big cyan" id="intensityValue">—</div>
-  <small class="muted">NORMALIZED MODEL OUTPUT</small>
-  <p id="intensityNote" class="note">No intensity estimate available.</p>
-</article>
+            <p class="hero-tagline">Track. Analyse. Be Prepared.</p>
 
-<article class="card">
-  <div class="head"><div><label>06 / NOWCAST</label><h2>Temporal Trend</h2></div></div>
-  <div class="big amber" id="predTrend">—</div><div id="trendBars" class="bars"></div>
-  <div class="track"><span>Next-step track delta</span><b id="trackDelta">—</b></div>
-  <p class="note">Meaningful trend and displacement require chronological frames.</p>
-</article>
-</aside>
-</main>
+            <div class="hero-rule"></div>
 
-<section class="bottom">
-<article class="card pipeline"><label>DATA PIPELINE</label><div><span>01 INPUT</span><i></i><span>02 DETECTION</span><i></i><span>03 CLASSIFICATION</span><i></i><span>04 NOWCAST</span></div></article>
-<article class="card warning"><b>!</b><p><strong>Development status</strong><br>Current local model is a pipeline prototype. Synthetic-data outputs are for interface/inference testing, not operational cyclone forecasting.</p></article>
-</section>
+            <div class="hero-actions">
+                <button class="primary-btn" id="demoBtn">
+                    <span>▶</span> View Live Analysis
+                </button>
 
-<footer>VAYUNETRA · SIH26070 <span>LOCAL CONSOLE · 127.0.0.1:8000</span></footer>
+                <label class="secondary-btn upload-btn">
+                    <span>⇧</span> Load Satellite Data
+                    <input type="file" id="imageInput" accept="image/*" multiple hidden>
+                </label>
+
+                <button class="secondary-btn" id="processBtn">
+                    <span>⌁</span> Analysis &amp; Reports
+                </button>
+
+                <button class="secondary-btn" id="settingsBtn">
+                    <span>⚙</span> Settings
+                </button>
+            </div>
+
+            <div class="hero-status" id="statusText">Initializing local inference node…</div>
+        </div>
+
+        <div class="hero-visual">
+            <div class="map-grid"></div>
+            <div class="india-outline"></div>
+            <div class="cyclone-ring ring-1"></div>
+            <div class="cyclone-ring ring-2"></div>
+            <div class="cyclone-ring ring-3"></div>
+            <div class="cyclone-eye"></div>
+            <div class="lat-line lat-1"></div>
+            <div class="lat-line lat-2"></div>
+            <div class="lon-line lon-1"></div>
+            <div class="lon-line lon-2"></div>
+            <div class="map-label label-india">INDIAN OCEAN</div>
+            <div class="map-label label-system">SATELLITE TRACK</div>
+        </div>
+    </section>
+
+    <!-- FOUR PRIMARY CARDS -->
+    <section class="dashboard-grid">
+
+        <!-- ACTIVE CYCLONES -->
+        <article class="dashboard-card card-cyan">
+            <div class="card-head">
+                <span>01 / ACTIVE CYCLONES</span>
+                <span class="card-icon">◉</span>
+            </div>
+
+            <div class="card-number" id="activeCyclones">01</div>
+            <div class="card-caption">MONITORED</div>
+
+            <div class="cyclone-list">
+                <div class="cyclone-row">
+                    <span class="severity-dot severe"></span>
+                    <div class="cyclone-name">
+                        <strong id="cycloneName">CYCLONE A</strong>
+                        <small id="cycloneCategory">Awaiting analysis</small>
+                    </div>
+                    <div class="cyclone-meta">
+                        <span>Wind: <b id="cycloneWind">—</b></span>
+                        <span>Lat: <b id="cycloneLat">—</b></span>
+                    </div>
+                    <span class="row-arrow">→</span>
+                </div>
+            </div>
+        </article>
+
+        <!-- SATELLITE OBSERVATION -->
+        <article class="dashboard-card card-blue">
+            <div class="card-head">
+                <span>02 / SATELLITE OBSERVATION</span>
+                <span class="card-icon">☁</span>
+            </div>
+
+            <div class="observation-layout">
+                <div class="mini-satellite">
+                    <canvas id="frameCanvas" width="128" height="128"></canvas>
+                </div>
+
+                <div class="observation-info">
+                    <div class="metric-label">SOURCE</div>
+                    <div class="metric-value" id="frameSource">WAITING</div>
+
+                    <div class="metric-label">CHANNELS</div>
+                    <div class="metric-value">IR + PMW</div>
+
+                    <div class="metric-label">FRAMES</div>
+                    <div class="metric-value" id="framesReceived">—</div>
+                </div>
+            </div>
+
+            <div class="legend" id="legendBar"></div>
+            <div class="legend-labels">
+                <span>WARM</span>
+                <span>COLD / DEEP CONVECTION</span>
+            </div>
+        </article>
+
+        <!-- TRACK -->
+        <article class="dashboard-card card-violet">
+            <div class="card-head">
+                <span>03 / TRACK &amp; NOWCAST</span>
+                <span class="card-icon">⌁</span>
+            </div>
+
+            <div class="track-visual">
+                <div class="track-line"></div>
+                <div class="track-point point-1"></div>
+                <div class="track-point point-2"></div>
+                <div class="track-point point-3"></div>
+                <div class="track-point point-current"></div>
+            </div>
+
+            <div class="track-status">
+                <div>
+                    <div class="metric-label">CURRENT TREND</div>
+                    <div class="big-track-value" id="predTrend">—</div>
+                </div>
+
+                <div class="track-arrow-large" id="trackArrow">↗</div>
+            </div>
+
+            <div class="track-delta">
+                <span>Next-step displacement</span>
+                <strong id="trackDelta">—</strong>
+            </div>
+
+            <div class="scope-note">
+                Short-horizon trend nowcasting only.
+            </div>
+        </article>
+
+        <!-- INTENSITY -->
+        <article class="dashboard-card card-amber">
+            <div class="card-head">
+                <span>04 / STORM INTENSITY</span>
+                <span class="card-icon">≋</span>
+            </div>
+
+            <div class="intensity-layout">
+                <div class="gauge">
+                    <div class="gauge-inner">
+                        <span id="intensityValue">—</span>
+                        <small>MODEL OUTPUT</small>
+                    </div>
+                </div>
+
+                <div class="intensity-info">
+                    <div class="metric-label">CATEGORY</div>
+                    <div class="intensity-category" id="predCategory">—</div>
+
+                    <div class="metric-label">PRESSURE</div>
+                    <div class="metric-value">— <span>hPa</span></div>
+
+                    <div class="metric-label">SIZE</div>
+                    <div class="metric-value">— <span>nmi</span></div>
+                </div>
+            </div>
+
+            <div class="intensity-note" id="intensityNote">
+                Waiting for model inference.
+            </div>
+        </article>
+
+    </section>
+
+    <!-- ANALYSIS SECTION -->
+    <section class="analysis-section">
+
+        <div class="section-title">
+            <div>
+                <div class="eyebrow">MODEL ANALYSIS</div>
+                <h2>Observation Intelligence</h2>
+            </div>
+
+            <div class="sequence-badge">
+                <span class="status-dot"></span>
+                <span id="sequenceTag">READY</span>
+            </div>
+        </div>
+
+        <div class="analysis-grid">
+
+            <article class="analysis-card">
+                <div class="analysis-head">
+                    <span>CYCLONE IDENTIFICATION</span>
+                    <span>01</span>
+                </div>
+
+                <div class="presence-readout">
+                    <strong id="presence">—</strong>
+                    <span>presence probability</span>
+                </div>
+
+                <div class="progress-track">
+                    <div class="progress-fill" id="presenceBar"></div>
+                </div>
+
+                <div class="analysis-foot">
+                    <span>MODEL STATUS</span>
+                    <strong id="presenceState">WAITING</strong>
+                </div>
+            </article>
+
+            <article class="analysis-card">
+                <div class="analysis-head">
+                    <span>INTENSITY CLASSIFICATION</span>
+                    <span>02</span>
+                </div>
+
+                <div class="category-readout" id="predCategorySecondary">—</div>
+
+                <div class="probability-list" id="categoryBars"></div>
+            </article>
+
+            <article class="analysis-card">
+                <div class="analysis-head">
+                    <span>TEMPORAL ANALYSIS</span>
+                    <span>03</span>
+                </div>
+
+                <div class="temporal-meta">
+                    <div>
+                        <span>MODE</span>
+                        <strong id="temporalMode">—</strong>
+                    </div>
+                    <div>
+                        <span>FRAMES</span>
+                        <strong id="framesReceivedSecondary">—</strong>
+                    </div>
+                </div>
+
+                <div class="probability-list" id="trendBars"></div>
+            </article>
+
+        </div>
+
+        <div class="ground-truth">
+            <div class="gt-title">REFERENCE / DEMO LABEL</div>
+
+            <div class="gt-values">
+                <div>
+                    <span>CATEGORY</span>
+                    <strong id="gtCategory">—</strong>
+                </div>
+
+                <div>
+                    <span>TREND</span>
+                    <strong id="gtTrend">—</strong>
+                </div>
+
+                <div>
+                    <span>MODE</span>
+                    <strong id="temporalModeBottom">—</strong>
+                </div>
+            </div>
+        </div>
+
+    </section>
+
+    <!-- FOOTER -->
+    <footer>
+        <div class="footer-left">
+            <span class="footer-mark">—</span>
+            <span>Safer Tomorrow, With Better Insights.</span>
+        </div>
+
+        <div class="footer-right">
+            <strong>VAYUNETRA</strong>
+            <span>—</span>
+            <span>CYCLONE INTELLIGENCE CONSOLE</span>
+        </div>
+    </footer>
+
 </div>
+
 <script src="app.js"></script>
+
+
+
 </body>
 </html>
