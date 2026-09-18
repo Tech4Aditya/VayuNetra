@@ -1,0 +1,2 @@
+samples,actual_mean_kt,predicted_mean_kt,mae_kt,rmse_kt,bias_kt,underprediction_rate_pct,extreme_samples_ge_96kt
+380,53.48684210526316,53.03152258847105,15.692993505887294,21.8644131040507,-0.45531951679210914,42.368421052631575,44

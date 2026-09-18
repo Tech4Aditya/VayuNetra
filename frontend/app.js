@@ -1,41 +1,54 @@
 /* ============================================================
-   VAYUNETRA — VAYU DRISHTI
-   SAFE FRONTEND CONTROLLER
+   VAYUNETRA — CYCLONE INTELLIGENCE CONSOLE
+   Frontend Controller
    ============================================================ */
-
-const API_BASE = "http://localhost:8000";
-
-const $ = id => document.getElementById(id);
 
 
 /* ============================================================
-   SAFE DOM
+   CONFIG
+   ============================================================ */
+
+const API_BASE = "http://127.0.0.1:8000";
+
+const $ = (id) =>
+    document.getElementById(id);
+
+
+/* ============================================================
+   SAFE DOM HELPERS
    ============================================================ */
 
 function text(id, value) {
-    const el = $(id);
-    if (el) {
-        el.textContent = value ?? "—";
-    }
+
+    const element = $(id);
+
+    if (!element) return;
+
+    element.textContent =
+        value === undefined ||
+        value === null
+            ? "—"
+            : String(value);
 }
+
 
 function width(id, value) {
-    const el = $(id);
-    if (!el) return;
 
-    const n = Math.max(
-        0,
-        Math.min(100, Number(value) || 0)
-    );
+    const element = $(id);
 
-    el.style.width = `${n}%`;
+    if (!element) return;
+
+    element.style.width = `${value}%`;
 }
 
+
 function html(id, value) {
-    const el = $(id);
-    if (el) {
-        el.innerHTML = value || "";
-    }
+
+    const element = $(id);
+
+    if (!element) return;
+
+    element.innerHTML = value;
 }
 
 
@@ -43,30 +56,30 @@ function html(id, value) {
    STATUS
    ============================================================ */
 
-function status(message, good = false) {
+function status(message, success = false) {
 
-    const el = $("statusText");
+    text(
+        "statusText",
+        message
+    );
 
-    if (!el) return;
+    const element =
+        $("statusText");
 
-    el.textContent = message;
+    if (!element) return;
 
-    el.style.color =
-        good
-            ? "#159b96"
-            : "#71807d";
+    element.style.color =
+        success
+            ? "var(--green)"
+            : "var(--muted)";
 }
 
 
 /* ============================================================
-   CLOCK
+   TIME
    ============================================================ */
 
-function clock() {
-
-    const el = $("clock");
-
-    if (!el) return;
+function updateClock() {
 
     const now =
         new Intl.DateTimeFormat(
@@ -80,33 +93,73 @@ function clock() {
             }
         ).format(new Date());
 
-    el.textContent = `${now} IST`;
+    text(
+        "clock",
+        `${now} IST`
+    );
 }
 
 
 /* ============================================================
-   SATELLITE COLOURS
+   SATELLITE COLOUR MAP
    ============================================================ */
 
 const STOPS = [
-    [0.00, [10, 10, 14]],
-    [0.35, [90, 90, 90]],
-    [0.55, [220, 220, 220]],
-    [0.65, [255, 255, 0]],
-    [0.75, [255, 140, 0]],
-    [0.85, [255, 0, 0]],
-    [1.00, [160, 0, 200]]
+
+    {
+        t: 0.00,
+        c: [10, 10, 14]
+    },
+
+    {
+        t: 0.35,
+        c: [90, 90, 90]
+    },
+
+    {
+        t: 0.55,
+        c: [220, 220, 220]
+    },
+
+    {
+        t: 0.65,
+        c: [255, 255, 0]
+    },
+
+    {
+        t: 0.75,
+        c: [255, 140, 0]
+    },
+
+    {
+        t: 0.85,
+        c: [255, 0, 0]
+    },
+
+    {
+        t: 1.00,
+        c: [160, 0, 200]
+    }
 ];
 
-function getColor(value) {
 
-    let v = Number(value);
+function satelliteColor(value) {
+
+    let v =
+        Number(value);
 
     if (!Number.isFinite(v)) {
         v = 0;
     }
 
-    v = Math.max(0, Math.min(1, v));
+    v =
+        Math.max(
+            0,
+            Math.min(
+                1,
+                v
+            )
+        );
 
     for (
         let i = 0;
@@ -114,41 +167,35 @@ function getColor(value) {
         i++
     ) {
 
-        const a = STOPS[i];
-        const b = STOPS[i + 1];
+        const a =
+            STOPS[i];
+
+        const b =
+            STOPS[i + 1];
 
         if (
-            v >= a[0] &&
-            v <= b[0]
+            v >= a.t &&
+            v <= b.t
         ) {
 
-            const ratio =
-                (v - a[0]) /
-                (b[0] - a[0]);
+            const factor =
+                (v - a.t) /
+                (b.t - a.t || 1);
 
-            return [
-                Math.round(
-                    a[1][0] +
-                    ratio *
-                    (b[1][0] - a[1][0])
-                ),
-
-                Math.round(
-                    a[1][1] +
-                    ratio *
-                    (b[1][1] - a[1][1])
-                ),
-
-                Math.round(
-                    a[1][2] +
-                    ratio *
-                    (b[1][2] - a[1][2])
-                )
-            ];
+            return a.c.map(
+                (x, j) =>
+                    Math.round(
+                        x +
+                        factor *
+                        (b.c[j] - x)
+                    )
+            );
         }
     }
 
-    return [160, 0, 200];
+    return STOPS[
+        STOPS.length - 1
+    ].c;
 }
 
 
@@ -158,30 +205,45 @@ function getColor(value) {
 
 function buildLegend() {
 
-    const el = $("legendBar");
+    const legend =
+        $("legendBar");
 
-    if (!el) return;
+    if (!legend) return;
 
-    el.innerHTML = "";
+    legend.innerHTML = "";
 
-    for (let i = 0; i < 32; i++) {
+    for (
+        let i = 0;
+        i <= 50;
+        i++
+    ) {
 
-        const block =
-            document.createElement("div");
+        const element =
+            document.createElement(
+                "div"
+            );
 
-        const [r, g, b] =
-            getColor(i / 31);
+        const color =
+            satelliteColor(
+                i / 50
+            );
 
-        block.style.background =
-            `rgb(${r},${g},${b})`;
+        element.style.background =
+            `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
 
-        el.appendChild(block);
+        legend.appendChild(
+            element
+        );
     }
 }
 
 
 /* ============================================================
-   DRAW SATELLITE FRAME
+   DRAW TCIR FRAME
+   Backend frame format:
+   [height][width][4]
+   Channel order:
+   IR, WV, VIS, PMW
    ============================================================ */
 
 function drawFrame(frames) {
@@ -193,13 +255,10 @@ function drawFrame(frames) {
         return;
     }
 
-    const canvas =
-        $("frameCanvas");
-
-    if (!canvas) return;
-
     const frame =
-        frames[frames.length - 1];
+        frames[
+            frames.length - 1
+        ];
 
     if (
         !Array.isArray(frame) ||
@@ -207,6 +266,11 @@ function drawFrame(frames) {
     ) {
         return;
     }
+
+    const canvas =
+        $("frameCanvas");
+
+    if (!canvas) return;
 
     const ctx =
         canvas.getContext("2d");
@@ -216,38 +280,26 @@ function drawFrame(frames) {
     const height =
         frame.length;
 
-    const width =
+    const widthValue =
         Array.isArray(frame[0])
             ? frame[0].length
-            : 128;
-
-    /*
-     * Safety guard.
-     * Never allow a malformed backend response
-     * to allocate a ridiculous canvas.
-     */
+            : 0;
 
     if (
-        width <= 0 ||
-        height <= 0 ||
-        width > 1024 ||
-        height > 1024
+        widthValue === 0
     ) {
-        console.warn(
-            "Invalid satellite frame dimensions:",
-            width,
-            height
-        );
-
         return;
     }
 
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width =
+        widthValue;
 
-    const image =
+    canvas.height =
+        height;
+
+    const imageData =
         ctx.createImageData(
-            width,
+            widthValue,
             height
         );
 
@@ -257,163 +309,290 @@ function drawFrame(frames) {
         y++
     ) {
 
-        const row = frame[y];
-
-        if (!Array.isArray(row)) {
-            continue;
-        }
-
         for (
             let x = 0;
-            x < width;
+            x < widthValue;
             x++
         ) {
 
-            const value =
-                Number(row[x] ?? 0);
+            const pixel =
+                frame[y][x];
 
-            const [r, g, b] =
-                getColor(value);
+            let value;
+
+            /*
+             * TCIR frame is normally:
+             * [IR, WV, VIS, PMW]
+             */
+
+            if (
+                Array.isArray(pixel)
+            ) {
+
+                /*
+                 * Use IR channel.
+                 */
+
+                value =
+                    Number(
+                        pixel[0]
+                    );
+
+            } else {
+
+                value =
+                    Number(pixel);
+            }
+
+            /*
+             * Backend returns values
+             * normalized between 0 and 1
+             * for temporal inference.
+             *
+             * If a raw 0-255 value somehow
+             * arrives, normalize it here.
+             */
+
+            if (
+                Number.isFinite(value) &&
+                value > 1
+            ) {
+
+                value /=
+                    255;
+            }
+
+            const rgb =
+                satelliteColor(
+                    value
+                );
 
             const index =
-                (y * width + x) * 4;
+                (
+                    y *
+                    widthValue +
+                    x
+                ) * 4;
 
-            image.data[index] = r;
-            image.data[index + 1] = g;
-            image.data[index + 2] = b;
-            image.data[index + 3] = 255;
+            imageData.data[index] =
+                rgb[0];
+
+            imageData.data[index + 1] =
+                rgb[1];
+
+            imageData.data[index + 2] =
+                rgb[2];
+
+            imageData.data[index + 3] =
+                255;
         }
     }
 
     ctx.putImageData(
-        image,
+        imageData,
         0,
         0
     );
 
     text(
         "frameSource",
-        `SATELLITE · ${frames.length} FRAME(S)`
+        `TCIR REAL SATELLITE · FRAME ${frames.length}`
     );
 }
 
 
 /* ============================================================
-   FETCH WITH TIMEOUT
+   UPLOAD PREVIEW
    ============================================================ */
 
-async function fetchWithTimeout(
-    url,
-    options = {},
-    timeout = 10000
+function previewImage(file) {
+
+    if (!file) return;
+
+    const image =
+        new Image();
+
+    image.onload =
+        function () {
+
+            const canvas =
+                $("frameCanvas");
+
+            if (!canvas) return;
+
+            const ctx =
+                canvas.getContext("2d");
+
+            const size =
+                256;
+
+            canvas.width =
+                size;
+
+            canvas.height =
+                size;
+
+            ctx.clearRect(
+                0,
+                0,
+                size,
+                size
+            );
+
+            ctx.drawImage(
+                image,
+                0,
+                0,
+                size,
+                size
+            );
+
+            URL.revokeObjectURL(
+                image.src
+            );
+        };
+
+    image.src =
+        URL.createObjectURL(
+            file
+        );
+}
+
+
+/*
+ * Compatibility alias.
+ */
+
+function uploadPreview(file) {
+
+    previewImage(file);
+}
+
+
+/* ============================================================
+   ESCAPE HTML
+   ============================================================ */
+
+function escapeHtml(value) {
+
+    return String(value)
+        .replace(
+            /&/g,
+            "&amp;"
+        )
+        .replace(
+            /</g,
+            "&lt;"
+        )
+        .replace(
+            />/g,
+            "&gt;"
+        )
+        .replace(
+            /"/g,
+            "&quot;"
+        )
+        .replace(
+            /'/g,
+            "&#039;"
+        );
+}
+
+
+/* ============================================================
+   PROBABILITY BARS
+   ============================================================ */
+
+function renderBars(
+    containerId,
+    probabilities
 ) {
 
-    const controller =
-        new AbortController();
+    const box =
+        $(containerId);
 
-    const timer =
-        setTimeout(
-            () => controller.abort(),
-            timeout
+    if (!box) return;
+
+    box.innerHTML = "";
+
+    if (!probabilities) {
+        return;
+    }
+
+    const entries =
+        Object.entries(
+            probabilities
         );
 
-    try {
-
-        const response =
-            await fetch(
-                url,
-                {
-                    ...options,
-                    signal:
-                        controller.signal
-                }
-            );
-
-        return response;
-
-    } finally {
-
-        clearTimeout(timer);
+    if (
+        entries.length === 0
+    ) {
+        return;
     }
+
+    entries
+        .sort(
+            (a, b) =>
+                Number(b[1]) -
+                Number(a[1])
+        )
+        .forEach(
+            ([label, probability]) => {
+
+                const pct =
+                    Math.max(
+                        0,
+                        Math.min(
+                            100,
+                            Number(
+                                probability
+                            ) * 100
+                        )
+                    );
+
+                const row =
+                    document.createElement(
+                        "div"
+                    );
+
+                row.className =
+                    "bar-row";
+
+                row.innerHTML = `
+                    <div class="bar-top">
+                        <span>${escapeHtml(label)}</span>
+                        <span>${pct.toFixed(1)}%</span>
+                    </div>
+
+                    <div class="bar-bg">
+                        <div
+                            class="bar-fill"
+                            style="width:${pct.toFixed(1)}%"
+                        ></div>
+                    </div>
+                `;
+
+                box.appendChild(
+                    row
+                );
+            }
+        );
 }
 
 
-/* ============================================================
-   BACKEND HEALTH
-   ============================================================ */
+/*
+ * Compatibility alias.
+ */
 
-async function checkBackend() {
+function bars(
+    containerId,
+    probabilities
+) {
 
-    status(
-        "Checking local inference node…"
+    renderBars(
+        containerId,
+        probabilities
     );
-
-    try {
-
-        const response =
-            await fetchWithTimeout(
-                `${API_BASE}/health`,
-                {
-                    cache: "no-store"
-                },
-                3000
-            );
-
-        if (!response.ok) {
-            throw new Error(
-                `HTTP ${response.status}`
-            );
-        }
-
-        const data =
-            await response.json();
-
-        text(
-            "systemState",
-            data.status
-                ? String(
-                    data.status
-                ).toUpperCase()
-                : "NODE ONLINE"
-        );
-
-        const dot =
-            $("systemDot");
-
-        if (dot) {
-            dot.style.background =
-                "#239b70";
-        }
-
-        status(
-            "Backend online",
-            true
-        );
-
-    } catch (error) {
-
-        console.warn(
-            "Backend health check failed:",
-            error
-        );
-
-        text(
-            "systemState",
-            "NODE OFFLINE"
-        );
-
-        const dot =
-            $("systemDot");
-
-        if (dot) {
-            dot.style.background =
-                "#d54b4b";
-        }
-
-        status(
-            "Backend unavailable — check localhost:8000"
-        );
-    }
 }
 
 
@@ -422,6 +601,31 @@ async function checkBackend() {
    ============================================================ */
 
 function clearResults() {
+
+    text(
+        "activeCyclones",
+        "—"
+    );
+
+    text(
+        "cycloneName",
+        "—"
+    );
+
+    text(
+        "cycloneCategory",
+        "—"
+    );
+
+    text(
+        "cycloneWind",
+        "—"
+    );
+
+    text(
+        "cycloneLat",
+        "—"
+    );
 
     text(
         "presence",
@@ -439,6 +643,11 @@ function clearResults() {
     );
 
     text(
+        "threshold",
+        "0.50"
+    );
+
+    text(
         "predCategory",
         "—"
     );
@@ -448,9 +657,9 @@ function clearResults() {
         "—"
     );
 
-    text(
-        "predTrend",
-        "—"
+    html(
+        "categoryBars",
+        ""
     );
 
     text(
@@ -459,27 +668,32 @@ function clearResults() {
     );
 
     text(
+        "pressureValue",
+        "—"
+    );
+
+    text(
+        "sizeValue",
+        "—"
+    );
+
+    text(
+        "intensityNote",
+        "No intensity estimate available."
+    );
+
+    text(
+        "predTrend",
+        "—"
+    );
+
+    html(
+        "trendBars",
+        ""
+    );
+
+    text(
         "trackDelta",
-        "—"
-    );
-
-    text(
-        "activeCyclones",
-        "—"
-    );
-
-    text(
-        "cycloneCategory",
-        "Awaiting analysis"
-    );
-
-    text(
-        "cycloneWind",
-        "—"
-    );
-
-    text(
-        "cycloneLat",
         "—"
     );
 
@@ -514,335 +728,482 @@ function clearResults() {
     );
 
     text(
-        "intensityNote",
-        "Waiting for model inference."
-    );
-
-    html(
-        "categoryBars",
-        ""
-    );
-
-    html(
-        "trendBars",
-        ""
+        "frameSource",
+        "NO DATA"
     );
 }
 
 
-/* ============================================================
-   ESCAPE HTML
-   ============================================================ */
+/*
+ * Compatibility alias.
+ */
 
-function escapeHTML(value) {
+function clearUI() {
 
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
+    clearResults();
 }
 
 
 /* ============================================================
-   BARS
+   FETCH WITH TIMEOUT
    ============================================================ */
 
-function bars(
-    containerId,
-    probabilities
+async function fetchWithTimeout(
+    url,
+    options = {},
+    timeout = 15000
 ) {
 
-    const container =
-        $(containerId);
+    const controller =
+        new AbortController();
 
-    if (!container) return;
+    const timer =
+        setTimeout(
+            () =>
+                controller.abort(),
+            timeout
+        );
 
-    container.innerHTML = "";
+    try {
 
-    if (
-        !probabilities ||
-        typeof probabilities !== "object"
-    ) {
+        return await fetch(
+            url,
+            {
+                ...options,
+                signal:
+                    controller.signal
+            }
+        );
+
+    } finally {
+
+        clearTimeout(
+            timer
+        );
+    }
+}
+
+
+/* ============================================================
+   RENDER REAL TCIR PREDICTION
+   ============================================================ */
+
+function renderPrediction(
+    prediction
+) {
+
+    if (!prediction) {
         return;
     }
 
-    const entries =
-        Object.entries(probabilities)
-            .sort(
-                (a, b) =>
-                    Number(b[1]) -
-                    Number(a[1])
-            );
+    console.log(
+        "Rendering prediction:",
+        prediction
+    );
 
-    for (
-        const [label, value]
-        of entries
+
+    /* ========================================================
+       IDENTIFICATION
+       ======================================================== */
+
+    const identification =
+        prediction.identification ||
+        {};
+
+    let presence =
+        Number(
+            identification
+                .cyclone_present_probability
+        );
+
+    /*
+     * The real TCIR temporal model is
+     * an intensity model, not a trained
+     * presence detector.
+     *
+     * Therefore don't fabricate a
+     * presence probability.
+     */
+
+    if (
+        !Number.isFinite(
+            presence
+        )
     ) {
 
-        const pct =
+        presence =
+            null;
+    }
+
+    const threshold =
+        Number(
+            identification.threshold ??
+            0.5
+        );
+
+
+    if (
+        presence !== null
+    ) {
+
+        text(
+            "presence",
+            `${(
+                presence * 100
+            ).toFixed(1)}%`
+        );
+
+        width(
+            "presenceBar",
             Math.max(
                 0,
                 Math.min(
                     100,
-                    Number(value) * 100
+                    presence * 100
                 )
-            );
-
-        const row =
-            document.createElement("div");
-
-        row.className =
-            "bar-row";
-
-        row.innerHTML = `
-            <div class="top">
-                <span>${escapeHTML(label)}</span>
-                <span class="pct">
-                    ${pct.toFixed(1)}%
-                </span>
-            </div>
-
-            <div class="bar-bg">
-                <div
-                    class="bar-fill"
-                    style="width:${pct}%"
-                ></div>
-            </div>
-        `;
-
-        container.appendChild(row);
-    }
-}
-
-
-/* ============================================================
-   RENDER PREDICTION
-   ============================================================ */
-
-function renderPrediction(data) {
-
-    if (!data) return;
-
-    console.log(
-        "Prediction:",
-        data
-    );
-
-    const identification =
-        data.identification || {};
-
-    const classification =
-        data.classification || {};
-
-    const intensity =
-        data.intensity || {};
-
-    const prediction =
-        data.prediction || {};
-
-
-    /* DETECTION */
-
-    const probability =
-        Number(
-            identification
-                .cyclone_present_probability
-                ?? 0
-        );
-
-    const detected =
-        identification.cyclone_present
-            !== undefined
-            ? Boolean(
-                identification.cyclone_present
             )
-            : probability >= 0.5;
-
-
-    text(
-        "presence",
-        `${(
-            probability * 100
-        ).toFixed(1)}%`
-    );
-
-    width(
-        "presenceBar",
-        probability * 100
-    );
-
-    text(
-        "presenceState",
-        detected
-            ? "DETECTED"
-            : "CLEAR"
-    );
-
-
-    /* CATEGORY */
-
-    const category =
-        classification
-            .predicted_category
-            ?? "—";
-
-    text(
-        "predCategory",
-        detected
-            ? category
-            : "No Cyclone Detected"
-    );
-
-    text(
-        "predCategorySecondary",
-        detected
-            ? category
-            : "CLEAR SCENE"
-    );
-
-
-    if (detected) {
-
-        bars(
-            "categoryBars",
-            classification
-                .category_probabilities
-                ?? {}
         );
 
-    } else {
-
-        html(
-            "categoryBars",
-            `
-            <div class="note">
-                Category suppressed below
-                detection threshold.
-            </div>
-            `
-        );
-    }
-
-
-    /* INTENSITY */
-
-    const normalized =
-        intensity.normalized_intensity;
-
-    if (
-        typeof normalized === "number" &&
-        Number.isFinite(normalized)
-    ) {
+        const detected =
+            identification
+                .cyclone_present ??
+            presence >= threshold;
 
         text(
-            "intensityValue",
-            normalized.toFixed(4)
-        );
-    }
-
-
-    text(
-        "intensityNote",
-        intensity.note
-            ??
-        "Normalized model output."
-    );
-
-
-    /* TEMPORAL */
-
-    if (
-        prediction.reliable === true
-    ) {
-
-        text(
-            "predTrend",
-            prediction.trend
-                ?? "—"
+            "presenceState",
+            detected
+                ? "DETECTED"
+                : "CLEAR"
         );
 
-        bars(
-            "trendBars",
-            prediction
-                .trend_probabilities
-                ?? {}
-        );
+        const state =
+            $("presenceState");
 
+        if (state) {
 
-        const delta =
-            prediction
-                .predicted_next_step_track_delta;
-
-
-        if (
-            Array.isArray(delta) &&
-            delta.length >= 2
-        ) {
-
-            const dx =
-                Number(delta[0]);
-
-            const dy =
-                Number(delta[1]);
-
-            if (
-                Number.isFinite(dx) &&
-                Number.isFinite(dy)
-            ) {
-
-                text(
-                    "trackDelta",
-                    `(${dx.toFixed(3)}, ${dy.toFixed(3)})`
-                );
-            }
+            state.style.color =
+                detected
+                    ? "var(--green)"
+                    : "var(--dim)";
         }
 
     } else {
 
         text(
-            "predTrend",
-            "INSUFFICIENT DATA"
+            "presence",
+            "N/A"
+        );
+
+        width(
+            "presenceBar",
+            0
         );
 
         text(
-            "trackDelta",
-            "Unavailable"
+            "presenceState",
+            "INTENSITY MODEL"
+        );
+    }
+
+
+    text(
+        "threshold",
+        threshold.toFixed(2)
+    );
+
+
+    /* ========================================================
+       CLASSIFICATION
+       ======================================================== */
+
+    const classification =
+        prediction.classification ||
+        {};
+
+    const category =
+        classification
+            .predicted_category ??
+        "—";
+
+    text(
+        "predCategory",
+        category
+    );
+
+    text(
+        "predCategorySecondary",
+        category
+    );
+
+    /*
+     * If the backend provides probabilities,
+     * show them.
+     *
+     * Otherwise explain that category is
+     * deterministically derived from wind.
+     */
+
+    if (
+        classification
+            .category_probabilities
+    ) {
+
+        renderBars(
+            "categoryBars",
+            classification
+                .category_probabilities
         );
 
+    } else {
+
         html(
-            "trendBars",
+            "categoryBars",
             `
             <div class="note">
-                Multiple chronological frames
-                are required.
+                Category derived from predicted
+                maximum sustained wind using
+                IMD intensity thresholds.
             </div>
             `
         );
     }
 
 
-    /* PRIMARY CARD */
+    /* ========================================================
+       INTENSITY
+       ======================================================== */
+
+    const intensity =
+        prediction.intensity ||
+        {};
+
+    const wind =
+        Number(
+            intensity.wind_kt
+        );
+
+    const pressure =
+        Number(
+            intensity.pressure_hpa
+        );
+
+    const size =
+        Number(
+            intensity.size_nmi
+        );
+
+
+    if (
+        Number.isFinite(
+            wind
+        )
+    ) {
+
+        text(
+            "intensityValue",
+            `${wind.toFixed(1)} kt`
+        );
+
+        text(
+            "cycloneWind",
+            `${wind.toFixed(1)} kt`
+        );
+
+    } else {
+
+        text(
+            "intensityValue",
+            "—"
+        );
+
+        text(
+            "cycloneWind",
+            "—"
+        );
+    }
+
+
+    if (
+        Number.isFinite(
+            pressure
+        )
+    ) {
+
+        text(
+            "pressureValue",
+            `${pressure.toFixed(1)} hPa`
+        );
+
+    } else {
+
+        text(
+            "pressureValue",
+            "—"
+        );
+    }
+
+
+    if (
+        Number.isFinite(
+            size
+        )
+    ) {
+
+        text(
+            "sizeValue",
+            `${size.toFixed(1)} nmi`
+        );
+
+    } else {
+
+        text(
+            "sizeValue",
+            "—"
+        );
+    }
+
+
+    text(
+        "intensityNote",
+        intensity.note ??
+        "TCIR temporal model prediction."
+    );
+
+
+    /* ========================================================
+       TEMPORAL CONTEXT
+       ======================================================== */
+
+    const temporalContext =
+        prediction.temporal_context ||
+        {};
+
+    const sequenceLength =
+        Number(
+            temporalContext
+                .sequence_length ??
+            4
+        );
+
+    const intervalHours =
+        Number(
+            temporalContext
+                .interval_hours ??
+            3
+        );
+
+    const historyHours =
+        Number(
+            temporalContext
+                .history_hours ??
+            (
+                (sequenceLength - 1) *
+                intervalHours
+            )
+        );
+
+
+    text(
+        "framesReceived",
+        sequenceLength
+    );
+
+    text(
+        "framesReceivedSecondary",
+        sequenceLength
+    );
+
+    text(
+        "temporalMode",
+        `${sequenceLength}-FRAME / ${intervalHours}H`
+    );
+
+    text(
+        "temporalModeBottom",
+        `${sequenceLength}-FRAME · ${historyHours}H HISTORY`
+    );
+
+
+    /* ========================================================
+       TREND
+       ======================================================== */
+
+    /*
+     * Current TCIR temporal model predicts
+     * intensity/pressure/size.
+     *
+     * It does NOT output a temporal trend
+     * classification or track delta.
+     */
+
+    text(
+        "predTrend",
+        "INTENSITY FORECAST"
+    );
+
+    html(
+        "trendBars",
+        `
+        <div class="note">
+            Temporal CNN + GRU uses
+            ${sequenceLength} chronological frames
+            across ${historyHours} hours of history.
+            Current model outputs intensity,
+            pressure and size rather than
+            a categorical trend.
+        </div>
+        `
+    );
+
+    text(
+        "trackDelta",
+        "Not predicted"
+    );
+
+
+    /* ========================================================
+       PRIMARY DASHBOARD
+       ======================================================== */
 
     text(
         "activeCyclones",
-        detected
-            ? "01"
-            : "00"
+        "01"
     );
 
     text(
         "cycloneCategory",
-        detected
-            ? category
-            : "No cyclone detected"
+        category
     );
+
+
+    /* ========================================================
+       MODEL INFO
+       ======================================================== */
+
+    if (
+        prediction.model
+    ) {
+
+        console.log(
+            "Model:",
+            prediction.model
+        );
+    }
+
+    if (
+        prediction.checkpoint
+    ) {
+
+        console.log(
+            "Checkpoint:",
+            prediction.checkpoint
+        );
+    }
 }
 
 
 /* ============================================================
-   DEMO
+   REAL TCIR DEMO
    ============================================================ */
 
 async function runDemo() {
@@ -850,35 +1211,39 @@ async function runDemo() {
     clearResults();
 
     status(
-        "Loading satellite demonstration…"
+        "Loading real TCIR demonstration sequence…"
     );
 
     try {
 
+        /* ----------------------------------------------------
+           STEP 1 — GET REAL TCIR SEQUENCE
+           ---------------------------------------------------- */
+
         const response =
             await fetchWithTimeout(
-                `${API_BASE}/demo_sequence`,
+                `${API_BASE}/tcir_demo`,
                 {
                     cache: "no-store"
                 },
-                10000
+                15000
             );
-
 
         if (!response.ok) {
 
+            const errorText =
+                await response.text();
+
             throw new Error(
-                `Demo HTTP ${response.status}`
+                `TCIR demo HTTP ${response.status}: ${errorText}`
             );
         }
-
 
         const demo =
             await response.json();
 
-
         console.log(
-            "Demo response:",
+            "TCIR demo response:",
             demo
         );
 
@@ -886,81 +1251,84 @@ async function runDemo() {
         if (
             !Array.isArray(
                 demo.frames
-            )
+            ) ||
+            demo.frames.length === 0
         ) {
 
             throw new Error(
-                "Backend returned invalid frames."
+                "Backend returned no TCIR frames."
             );
         }
 
+
+        /* ----------------------------------------------------
+           STEP 2 — VALIDATE SEQUENCE
+           ---------------------------------------------------- */
+
+        if (
+            demo.frames.length !== 4
+        ) {
+
+            console.warn(
+                `Expected 4 frames, received ${demo.frames.length}`
+            );
+        }
+
+
+        const frameCount =
+            demo.frames.length;
+
+
+        text(
+            "framesReceived",
+            frameCount
+        );
+
+        text(
+            "framesReceivedSecondary",
+            frameCount
+        );
+
+
+        text(
+            "temporalMode",
+            `${frameCount}-FRAME`
+        );
+
+
+        status(
+            `Loaded ${frameCount} real TCIR frames. Running temporal analysis…`
+        );
+
+
+        /* ----------------------------------------------------
+           STEP 3 — DRAW LATEST FRAME
+           ---------------------------------------------------- */
 
         drawFrame(
             demo.frames
         );
 
 
-        const count =
-            demo.frames.length;
+        /* ----------------------------------------------------
+           STEP 4 — SEND ACTUAL FRAMES
+           ----------------------------------------------------
 
+           IMPORTANT:
 
-        text(
-            "framesReceived",
-            count
-        );
+           TCIRSequenceIn expects:
 
-        text(
-            "framesReceivedSecondary",
-            count
-        );
+               frames: list
 
-        text(
-            "temporalMode",
-            count > 1
-                ? "MULTI-FRAME"
-                : "SINGLE"
-        );
+           NOT:
 
-        text(
-            "temporalModeBottom",
-            count > 1
-                ? "MULTI-FRAME"
-                : "SINGLE"
-        );
+               h5_indices
 
-        text(
-            "sequenceTag",
-            "DEMO SEQUENCE"
-        );
-
-
-        text(
-            "gtCategory",
-            demo.true_category
-                ?? "—"
-        );
-
-        text(
-            "gtTrend",
-            demo.true_trend
-                ?? "—"
-        );
-
-
-        status(
-            "Running local inference…"
-        );
-
-
-        /*
-         * IMPORTANT:
-         * Timeout prevents a broken backend/model
-         * from freezing the user experience.
-         */
+           ---------------------------------------------------- */
 
         const predictionResponse =
             await fetchWithTimeout(
-                `${API_BASE}/predict`,
+                `${API_BASE}/predict_tcir_sequence`,
                 {
                     method: "POST",
 
@@ -969,43 +1337,260 @@ async function runDemo() {
                             "application/json"
                     },
 
-                    body:
-                        JSON.stringify({
-                            frames:
-                                demo.frames
-                        })
+                    body: JSON.stringify({
+                        frames:
+                            demo.frames
+                    })
                 },
-                15000
+                30000
             );
 
 
-        if (!predictionResponse.ok) {
+        if (
+            !predictionResponse.ok
+        ) {
+
+            const errorText =
+                await predictionResponse.text();
 
             throw new Error(
-                `Prediction HTTP ${predictionResponse.status}`
+                `TCIR prediction HTTP ${predictionResponse.status}: ${errorText}`
             );
         }
 
 
+        /* ----------------------------------------------------
+           STEP 5 — READ PREDICTION
+           ---------------------------------------------------- */
+
         const prediction =
             await predictionResponse.json();
 
+        console.log(
+            "TCIR prediction response:",
+            prediction
+        );
+
+
+        /* ----------------------------------------------------
+           STEP 6 — RENDER MODEL OUTPUT
+           ---------------------------------------------------- */
 
         renderPrediction(
             prediction
         );
 
 
+        /* ----------------------------------------------------
+           STEP 7 — DEMO METADATA
+           ---------------------------------------------------- */
+
+        const cycloneId =
+            demo.cyclone_id ??
+            demo.temporal_context?.cyclone_id ??
+            "TCIR TEST SAMPLE";
+
+
+        const timestamp =
+            demo.target_timestamp ??
+            demo.timestamp ??
+            demo.temporal_context?.target_timestamp ??
+            "—";
+
+
+        text(
+            "cycloneName",
+            cycloneId
+        );
+
+
+        text(
+            "frameSource",
+            `TCIR · ${timestamp}`
+        );
+
+
+        /*
+         * TCIR sample itself establishes
+         * that this is a cyclone test sample.
+         *
+         * This is NOT a learned presence detector.
+         */
+
+        text(
+            "presence",
+            "KNOWN"
+        );
+
+        width(
+            "presenceBar",
+            100
+        );
+
+        text(
+            "presenceState",
+            "TCIR TEST SAMPLE"
+        );
+
+
+        /* ----------------------------------------------------
+           STEP 8 — GROUND TRUTH
+           ---------------------------------------------------- */
+
+        const groundTruth =
+            demo.ground_truth ||
+            {};
+
+
+        if (
+            groundTruth.category !==
+            undefined
+        ) {
+
+            text(
+                "gtCategory",
+                groundTruth.category
+            );
+
+        } else {
+
+            text(
+                "gtCategory",
+                "TCIR reference"
+            );
+        }
+
+
+        if (
+            groundTruth.trend !==
+            undefined
+        ) {
+
+            text(
+                "gtTrend",
+                groundTruth.trend
+            );
+
+        } else {
+
+            text(
+                "gtTrend",
+                "—"
+            );
+        }
+
+
+        /* ----------------------------------------------------
+           STEP 9 — TEMPORAL METADATA
+           ---------------------------------------------------- */
+
+        const temporalContext =
+            prediction.temporal_context ||
+            demo.temporal_context ||
+            {};
+
+
+        const interval =
+            Number(
+                temporalContext
+                    .interval_hours ??
+                3
+            );
+
+
+        const history =
+            Number(
+                temporalContext
+                    .history_hours ??
+                (
+                    (frameCount - 1) *
+                    interval
+                )
+            );
+
+
+        text(
+            "temporalMode",
+            `${frameCount}-FRAME / ${interval}H`
+        );
+
+
+        text(
+            "temporalModeBottom",
+            `${frameCount}-FRAME · ${history}H HISTORY`
+        );
+
+
+        text(
+            "framesReceived",
+            frameCount
+        );
+
+
+        text(
+            "framesReceivedSecondary",
+            frameCount
+        );
+
+
+        /* ----------------------------------------------------
+           STEP 10 — HDF5 INDEX DEBUG INFO
+           ---------------------------------------------------- */
+
+        if (
+            demo.temporal_context &&
+            Array.isArray(
+                demo.temporal_context
+                    .h5_indices
+            )
+        ) {
+
+            console.log(
+                "TCIR HDF5 indices:",
+                demo.temporal_context
+                    .h5_indices
+            );
+        }
+
+
+        /* ----------------------------------------------------
+           STEP 11 — SUCCESS
+           ---------------------------------------------------- */
+
         status(
-            "Analysis complete",
+            "TCIR temporal analysis complete.",
             true
+        );
+
+
+        console.log(
+            "TCIR analysis completed successfully:",
+            {
+                frames:
+                    frameCount,
+
+                cyclone_id:
+                    cycloneId,
+
+                timestamp:
+                    timestamp,
+
+                prediction:
+                    prediction,
+
+                ground_truth:
+                    groundTruth,
+
+                temporal_context:
+                    temporalContext
+            }
         );
 
 
     } catch (error) {
 
         console.error(
-            "Demo failed:",
+            "TCIR demo error:",
             error
         );
 
@@ -1016,14 +1601,34 @@ async function runDemo() {
         ) {
 
             status(
-                "Backend request timed out — page remains responsive."
+                "TCIR analysis timed out."
             );
 
         } else {
 
             status(
-                "Analysis failed — check backend console."
+                `Analysis failed: ${error.message}`
             );
+        }
+
+
+        const state =
+            $("systemState");
+
+        if (state) {
+
+            state.textContent =
+                "NODE OFFLINE";
+        }
+
+
+        const dot =
+            $("systemDot");
+
+        if (dot) {
+
+            dot.style.background =
+                "var(--red)";
         }
     }
 }
@@ -1033,59 +1638,6 @@ async function runDemo() {
    IMAGE UPLOAD
    ============================================================ */
 
-function previewImage(file) {
-
-    if (!file) return;
-
-    const canvas =
-        $("frameCanvas");
-
-    if (!canvas) return;
-
-    const image =
-        new Image();
-
-    const url =
-        URL.createObjectURL(file);
-
-
-    image.onload = () => {
-
-        const ctx =
-            canvas.getContext("2d");
-
-        if (!ctx) {
-            URL.revokeObjectURL(url);
-            return;
-        }
-
-        canvas.width =
-            image.naturalWidth || 128;
-
-        canvas.height =
-            image.naturalHeight || 128;
-
-        ctx.drawImage(
-            image,
-            0,
-            0,
-            canvas.width,
-            canvas.height
-        );
-
-        URL.revokeObjectURL(url);
-    };
-
-
-    image.onerror = () => {
-        URL.revokeObjectURL(url);
-    };
-
-
-    image.src = url;
-}
-
-
 async function processUpload() {
 
     const input =
@@ -1094,7 +1646,7 @@ async function processUpload() {
     if (!input) {
 
         status(
-            "Upload control not found."
+            "Image input not found."
         );
 
         return;
@@ -1107,19 +1659,19 @@ async function processUpload() {
         );
 
 
-    if (files.length === 0) {
+    if (
+        files.length === 0
+    ) {
 
         status(
-            "Select a satellite image first."
+            "Select at least one image."
         );
 
         return;
     }
 
 
-    previewImage(
-        files[files.length - 1]
-    );
+    clearResults();
 
 
     status(
@@ -1127,22 +1679,19 @@ async function processUpload() {
     );
 
 
-    const form =
+    const formData =
         new FormData();
 
 
-    /*
-     * Keep the same field name used by
-     * the existing backend.
-     */
-
     for (
-        const file of files
+        let i = 0;
+        i < files.length;
+        i++
     ) {
 
-        form.append(
+        formData.append(
             "images",
-            file
+            files[i]
         );
     }
 
@@ -1154,32 +1703,73 @@ async function processUpload() {
                 `${API_BASE}/predict_image`,
                 {
                     method: "POST",
-                    body: form
+                    body: formData
                 },
-                20000
+                30000
             );
 
 
         if (!response.ok) {
 
+            const errorText =
+                await response.text();
+
             throw new Error(
-                `Upload HTTP ${response.status}`
+                errorText ||
+                `HTTP ${response.status}`
             );
         }
 
 
-        const result =
+        const prediction =
             await response.json();
 
 
+        console.log(
+            "Upload prediction:",
+            prediction
+        );
+
+
+        /* Show last uploaded image */
+
+        uploadPreview(
+            files[
+                files.length - 1
+            ]
+        );
+
+
+        /* Render prediction */
+
         renderPrediction(
-            result
+            prediction
+        );
+
+
+        /* Metadata */
+
+        text(
+            "frameSource",
+            `EXTERNAL IMAGE · ${files.length} FRAME(S)`
+        );
+
+
+        text(
+            "gtCategory",
+            "— external image"
+        );
+
+
+        text(
+            "gtTrend",
+            "—"
         );
 
 
         const received =
-            result.frames_received
-                ?? files.length;
+            prediction.frames_received ??
+            files.length;
 
 
         text(
@@ -1187,10 +1777,12 @@ async function processUpload() {
             received
         );
 
+
         text(
             "framesReceivedSecondary",
             received
         );
+
 
         text(
             "temporalMode",
@@ -1201,31 +1793,15 @@ async function processUpload() {
 
 
         text(
-            "sequenceTag",
-            "UPLOAD"
-        );
-
-
-        text(
-            "gtCategory",
-            "External image"
-        );
-
-
-        text(
-            "gtTrend",
-            "—"
-        );
-
-
-        text(
-            "frameSource",
-            `UPLOAD · ${files.length} IMAGE(S)`
+            "temporalModeBottom",
+            files.length > 1
+                ? "EXTERNAL MULTI-FRAME"
+                : "EXTERNAL SINGLE FRAME"
         );
 
 
         status(
-            "Image analysis complete",
+            "Image analysis complete.",
             true
         );
 
@@ -1258,53 +1834,167 @@ async function processUpload() {
 
 
 /* ============================================================
-   BUTTONS
+   BACKEND HEALTH
+   ============================================================ */
+
+async function checkBackend() {
+
+    try {
+
+        const response =
+            await fetchWithTimeout(
+                `${API_BASE}/health`,
+                {
+                    cache: "no-store"
+                },
+                5000
+            );
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                `Health HTTP ${response.status}`
+            );
+        }
+
+
+        const data =
+            await response.json();
+
+
+        text(
+            "systemState",
+            data?.status
+                ? String(
+                    data.status
+                ).toUpperCase()
+                : "NODE ONLINE"
+        );
+
+
+        text(
+            "systemDetail",
+            "127.0.0.1:8000"
+        );
+
+
+        const dot =
+            $("systemDot");
+
+        if (dot) {
+
+            dot.style.background =
+                "var(--green)";
+        }
+
+
+        status(
+            "Backend online · models responding.",
+            true
+        );
+
+
+        console.log(
+            "Backend health:",
+            data
+        );
+
+
+    } catch (error) {
+
+        console.error(
+            "Health check:",
+            error
+        );
+
+
+        text(
+            "systemState",
+            "NODE OFFLINE"
+        );
+
+
+        text(
+            "systemDetail",
+            "127.0.0.1:8000"
+        );
+
+
+        const dot =
+            $("systemDot");
+
+        if (dot) {
+
+            dot.style.background =
+                "var(--red)";
+        }
+
+
+        status(
+            "Backend offline."
+        );
+    }
+}
+
+
+/* ============================================================
+   BUTTON SETUP
    ============================================================ */
 
 function setupButtons() {
 
-    const demo =
+
+    /* DEMO */
+
+    const demoButton =
         $("demoBtn");
 
-    if (demo) {
+    if (demoButton) {
 
-        demo.addEventListener(
+        demoButton.addEventListener(
             "click",
             runDemo
         );
     }
 
 
-    const process =
+    /* PROCESS */
+
+    const processButton =
         $("processBtn");
 
-    if (process) {
+    if (processButton) {
 
-        process.addEventListener(
+        processButton.addEventListener(
             "click",
             processUpload
         );
     }
 
 
-    const refresh =
+    /* REFRESH */
+
+    const refreshButton =
         $("refreshBtn");
 
-    if (refresh) {
+    if (refreshButton) {
 
-        refresh.addEventListener(
+        refreshButton.addEventListener(
             "click",
             checkBackend
         );
     }
 
 
-    const settings =
+    /* SETTINGS */
+
+    const settingsButton =
         $("settingsBtn");
 
-    if (settings) {
+    if (settingsButton) {
 
-        settings.addEventListener(
+        settingsButton.addEventListener(
             "click",
             () => {
 
@@ -1315,6 +2005,8 @@ function setupButtons() {
         );
     }
 
+
+    /* IMAGE INPUT */
 
     const input =
         $("imageInput");
@@ -1330,23 +2022,30 @@ function setupButtons() {
                         input.files || []
                     );
 
+
                 if (
-                    files.length > 0
+                    files.length === 0
                 ) {
-
-                    previewImage(
-                        files[files.length - 1]
-                    );
-
-                    text(
-                        "frameSource",
-                        `READY · ${files.length} IMAGE(S)`
-                    );
-
-                    status(
-                        `${files.length} image(s) ready`
-                    );
+                    return;
                 }
+
+
+                previewImage(
+                    files[
+                        files.length - 1
+                    ]
+                );
+
+
+                text(
+                    "frameSource",
+                    `READY · ${files.length} IMAGE(S)`
+                );
+
+
+                status(
+                    `${files.length} image(s) ready`
+                );
             }
         );
     }
@@ -1354,7 +2053,7 @@ function setupButtons() {
 
 
 /* ============================================================
-   START
+   INITIALIZATION
    ============================================================ */
 
 document.addEventListener(
@@ -1362,23 +2061,32 @@ document.addEventListener(
     () => {
 
         console.log(
-            "Vayu Drishti frontend loaded."
+            "VayuNetra frontend loaded."
         );
+
 
         buildLegend();
 
-        clock();
+
+        updateClock();
+
 
         setInterval(
-            clock,
+            updateClock,
             1000
         );
 
+
         setupButtons();
 
+
         /*
-         * Only health check automatically.
-         * NO demo inference on page load.
+         * Only perform health check
+         * automatically.
+         *
+         * Demo inference happens only
+         * when the user clicks:
+         * "View Live Analysis".
          */
 
         checkBackend();
