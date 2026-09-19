@@ -593,6 +593,7 @@ VayuNetra/
 ├── backend/
 │   │
 │   ├── checkpoints/
+│   │   ├── classifier_insat.pt
 │   │   ├── classifier.pt
 │   │   ├── predictor.pt
 │   │   ├── tcir_intensity_best.pt
