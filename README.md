@@ -101,11 +101,11 @@ VayuNetra aims to develop a unified machine-learning pipeline capable of learnin
                     ┌─────────────────────┐
                     │ Cyclone Analysis    │
                     │                     │
-                    │ • Wind             │
-                    │ • Pressure         │
-                    │ • Size             │
-                    │ • Position         │
-                    │ • Future Track     │
+                    │ • Wind              │
+                    │ • Pressure          │
+                    │ • Size              │
+                    │ • Position          │
+                    │ • Future Track      │
                     └─────────────────────┘
 ```
 
@@ -656,6 +656,7 @@ The repository contains the following trained checkpoints:
 
 | File | Purpose | Status |
 |---|---|---|
+| `classifier_insat.pt` | INSAT-3D/NIO real-satellite cyclone intensity classifier + wind-speed regression model | Available |
 | `classifier.pt` | Legacy synthetic classifier | Legacy |
 | `predictor.pt` | Legacy synthetic predictor | Legacy |
 | `tcir_intensity_best.pt` | TCIR real-satellite intensity model | Available |
