@@ -750,13 +750,13 @@ For example, `mosdac/api/config.json` is excluded from Git.
 - [x] Build 10-storm IMD best-track collection
 - [x] Establish NIO storm list
 - [ ] Build automated MOSDAC acquisition pipeline
-- [ ] Expand INSAT observations for remaining storms
+- [x] Expand INSAT observations for remaining storms
 - [ ] Audit all downloaded products
 - [ ] Remove corrupt/incomplete files
 - [ ] Generate final NIO dataset
 
 ### Phase 4 — NIO Model
-- [ ] Build training/validation/test splits
+- [x] Build training/validation/test splits
 - [ ] Establish baseline
 - [ ] Fine-tune using INSAT-3D observations
 - [ ] Evaluate on held-out storms
