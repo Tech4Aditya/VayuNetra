@@ -1,52 +1,132 @@
-"""
-Train CycloneCNN on the real INSAT cyclone dataset.
-
-Uses the existing calibrated outputs produced by:
-    backend/data/scripts/process_insat_storm.py
-
-Input:
-    7 storm manifests in backend/data/labels/*_insat_manifest.csv
-
-Tensor:
-    (2, 128, 128)
-    C0 = TIR1 radiance
-    C1 = WV radiance
-
-Important:
-    The current INSAT collection contains cyclone-positive samples only.
-    Therefore the presence head is NOT used as a meaningful classifier yet.
-    This script trains the 7-class intensity category + wind regression.
-"""
+# backend/train_insat_real.py
 
 from pathlib import Path
 import random
+import csv
+
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
+
 from torch.utils.data import Dataset, DataLoader
+from sklearn.metrics import accuracy_score, mean_absolute_error
 
 from models.classifier import CycloneCNN
 
 
+# ============================================================
+# CONFIG
+# ============================================================
+
 ROOT = Path(__file__).resolve().parent
 
-STORMS = [
+DATA_DIR = ROOT / "data"
+LABEL_DIR = DATA_DIR / "labels"
+PROCESSED_DIR = DATA_DIR / "processed"
+CHECKPOINT_DIR = ROOT / "checkpoints"
+
+CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+
+OUTPUT_MODEL = CHECKPOINT_DIR / "classifier_insat.pt"
+OUTPUT_STATS = DATA_DIR / "processed" / "insat_training_stats.npz"
+
+SEED = 42
+
+BATCH_SIZE = 8
+EPOCHS = 50
+
+LR = 1e-3
+WEIGHT_DECAY = 1e-4
+
+NUM_CATEGORIES = 7
+IN_CHANNELS = 2
+
+IMAGE_SIZE = 128
+
+WIND_MIN = 20.0
+WIND_MAX = 130.0
+
+
+# ============================================================
+# STORM SPLIT
+# ============================================================
+
+TRAIN_STORMS = [
     "AMPHAN",
     "NISARGA",
     "YAAS",
     "GULAAB",
     "ASANI",
+    "BULBUL",
+    "TAUKTAE",
+]
+
+VAL_STORMS = [
     "BIPARJOY",
+]
+
+TEST_STORMS = [
     "MICHAUNG",
 ]
 
-# Deterministic storm-level split.
-TRAIN_STORMS = ["AMPHAN", "NISARGA", "YAAS", "GULAAB", "ASANI"]
-VAL_STORMS = ["BIPARJOY"]
-TEST_STORMS = ["MICHAUNG"]
 
-CATEGORIES = [
+# ============================================================
+# CATEGORY MAPPING
+# ============================================================
+#
+# Supports both:
+#
+# Full names:
+# Depression
+# Deep Depression
+# Cyclonic Storm
+# ...
+#
+# AND MOSDAC/TAUKTAE abbreviations:
+# D
+# DD
+# CS
+# SCS
+# VSCS
+# ESCS
+# SuCS / SUCS
+#
+# ============================================================
+
+CATEGORY_MAP = {
+
+    # Category 0
+    "D": 0,
+    "Depression": 0,
+
+    # Category 1
+    "DD": 1,
+    "Deep Depression": 1,
+
+    # Category 2
+    "CS": 2,
+    "Cyclonic Storm": 2,
+
+    # Category 3
+    "SCS": 3,
+    "Severe Cyclonic Storm": 3,
+
+    # Category 4
+    "VSCS": 4,
+    "Very Severe Cyclonic Storm": 4,
+
+    # Category 5
+    "ESCS": 5,
+    "Extremely Severe Cyclonic Storm": 5,
+
+    # Category 6
+    "SuCS": 6,
+    "SUCS": 6,
+    "Super Cyclonic Storm": 6,
+}
+
+
+CATEGORY_NAMES = [
     "Depression",
     "Deep Depression",
     "Cyclonic Storm",
@@ -55,427 +135,1171 @@ CATEGORIES = [
     "Extremely Severe Cyclonic Storm",
     "Super Cyclonic Storm",
 ]
-CATEGORY_TO_ID = {name: i for i, name in enumerate(CATEGORIES)}
-
-BATCH_SIZE = 8
-EPOCHS = 50
-LR = 1e-3
-WEIGHT_DECAY = 1e-4
-INTENSITY_WEIGHT = 0.5
-SEED = 42
-
-# Existing model's intensity head is sigmoid -> [0, 1].
-# Wind is normalized to the physical range used by this dataset.
-WIND_MIN = 20.0
-WIND_MAX = 130.0
 
 
-def set_seed():
-    random.seed(SEED)
-    np.random.seed(SEED)
-    torch.manual_seed(SEED)
+# ============================================================
+# REPRODUCIBILITY
+# ============================================================
+
+def set_seed(seed=42):
+
+    random.seed(seed)
+    np.random.seed(seed)
+
+    torch.manual_seed(seed)
+
     if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(SEED)
+        torch.cuda.manual_seed_all(seed)
 
 
-def manifest_path(storm):
-    return ROOT / "data" / "labels" / f"{storm.lower()}_insat_manifest.csv"
+set_seed(SEED)
 
 
-def calibrated_dir(storm):
-    return ROOT / "data" / "processed" / f"insat_{storm.lower()}_calibrated"
+# ============================================================
+# DEVICE
+# ============================================================
+
+DEVICE = torch.device(
+    "cuda" if torch.cuda.is_available() else "cpu"
+)
 
 
-def load_manifest():
-    frames = []
+print("=" * 70)
+print("INSAT REAL DATA TRAINING")
+print("=" * 70)
 
-    for storm in STORMS:
-        path = manifest_path(storm)
+print(f"Device: {DEVICE}")
 
-        if not path.exists():
-            raise FileNotFoundError(f"Missing manifest: {path}")
+print(
+    f"Train storms: {', '.join(TRAIN_STORMS)}"
+)
 
-        df = pd.read_csv(path)
+print(
+    f"Val storms:   {', '.join(VAL_STORMS)}"
+)
 
-        if len(df) == 0:
-            raise ValueError(f"Empty manifest: {path}")
+print(
+    f"Test storms:  {', '.join(TEST_STORMS)}"
+)
 
-        # process_insat_storm.py writes "cyclone".
-        if "cyclone" not in df.columns:
-            raise ValueError(f"{path} has no 'cyclone' column")
-
-        frames.append(df)
-
-    df = pd.concat(frames, ignore_index=True)
-
-    print("=" * 70)
-    print("REAL INSAT DATASET")
-    print("=" * 70)
-    print(f"Total samples: {len(df)}")
-    print("\nStorm distribution:")
-    print(df["cyclone"].value_counts())
-
-    print("\nCategory distribution:")
-    print(df["category"].value_counts())
-
-    return df
+print("=" * 70)
 
 
-def add_paths_and_labels(df):
-    df = df.copy()
+# ============================================================
+# MANIFEST
+# ============================================================
 
-    image_paths = []
-    category_ids = []
-    intensity_targets = []
+def find_manifest(storm):
 
-    for _, row in df.iterrows():
-        storm = str(row["cyclone"]).upper()
-        filename = Path(str(row["file"])).stem
-
-        sample_dir = calibrated_dir(storm) / filename
-
-        tir = sample_dir / "tir1_radiance.npy"
-        wv = sample_dir / "wv_radiance.npy"
-
-        if not tir.exists() or not wv.exists():
-            raise FileNotFoundError(
-                f"Missing calibrated sample for {storm}/{filename}\n"
-                f"TIR: {tir}\n"
-                f"WV : {wv}"
-            )
-
-        category = str(row["category"]).strip()
-
-        if category not in CATEGORY_TO_ID:
-            raise ValueError(
-                f"Unknown category: {category!r}\n"
-                f"Known: {CATEGORIES}"
-            )
-
-        wind = float(row["wind_kt"])
-
-        if not np.isfinite(wind):
-            raise ValueError(f"Invalid wind: {wind}")
-
-        # Keep target inside [0,1] for the existing sigmoid intensity head.
-        intensity = np.clip(
-            (wind - WIND_MIN) / (WIND_MAX - WIND_MIN),
-            0.0,
-            1.0,
-        )
-
-        image_paths.append((tir, wv))
-        category_ids.append(CATEGORY_TO_ID[category])
-        intensity_targets.append(intensity)
-
-    df["image_paths"] = image_paths
-    df["category_id"] = category_ids
-    df["intensity_target"] = intensity_targets
-
-    return df
-
-
-def calculate_train_stats(df):
-    sums = np.zeros(2, dtype=np.float64)
-    sq_sums = np.zeros(2, dtype=np.float64)
-    count = 0
-
-    for _, row in df.iterrows():
-        tir_path, wv_path = row["image_paths"]
-
-        tir = np.load(tir_path).astype(np.float32)
-        wv = np.load(wv_path).astype(np.float32)
-
-        if tir.shape != (128, 128) or wv.shape != (128, 128):
-            raise ValueError(
-                f"Bad shape: {tir_path}\n"
-                f"TIR={tir.shape}, WV={wv.shape}"
-            )
-
-        if not np.isfinite(tir).all() or not np.isfinite(wv).all():
-            raise ValueError(f"NaN/Inf in {tir_path}")
-
-        arrays = [tir, wv]
-
-        for c, x in enumerate(arrays):
-            sums[c] += float(x.sum())
-            sq_sums[c] += float((x * x).sum())
-
-        count += tir.size
-
-    mean = sums / count
-    var = sq_sums / count - mean * mean
-    std = np.sqrt(np.maximum(var, 1e-12))
-
-    return mean.astype(np.float32), std.astype(np.float32)
-
-
-class INSATDataset(Dataset):
-    def __init__(self, df, mean, std):
-        self.df = df.reset_index(drop=True)
-        self.mean = mean
-        self.std = std
-
-    def __len__(self):
-        return len(self.df)
-
-    def __getitem__(self, idx):
-        row = self.df.iloc[idx]
-
-        tir_path, wv_path = row["image_paths"]
-
-        tir = np.load(tir_path).astype(np.float32)
-        wv = np.load(wv_path).astype(np.float32)
-
-        image = np.stack(
-            [
-                (tir - self.mean[0]) / self.std[0],
-                (wv - self.mean[1]) / self.std[1],
-            ],
-            axis=0,
-        ).astype(np.float32)
-
-        return (
-            torch.from_numpy(image),
-            torch.tensor(int(row["category_id"]), dtype=torch.long),
-            torch.tensor(float(row["intensity_target"]), dtype=torch.float32),
-        )
-
-
-def make_loss():
-    # Class weights from the TRAIN split only.
-    counts = np.bincount(
-        TRAIN_DF["category_id"].to_numpy(),
-        minlength=len(CATEGORIES),
-    ).astype(np.float32)
-
-    weights = np.zeros_like(counts)
-
-    nonzero = counts > 0
-    weights[nonzero] = len(TRAIN_DF) / (
-        len(CATEGORIES) * counts[nonzero]
+    path = (
+        LABEL_DIR /
+        f"{storm.lower()}_insat_manifest.csv"
     )
 
-    # Categories absent from train get zero weight.
-    # They cannot be learned from a training split that does not contain them.
-    weights = torch.tensor(weights, dtype=torch.float32, device=DEVICE)
+    if not path.exists():
 
-    return nn.CrossEntropyLoss(weight=weights)
+        raise FileNotFoundError(
+            f"Manifest not found for {storm}:\n{path}"
+        )
+
+    return path
 
 
-def run_epoch(model, loader, optimizer, category_loss_fn):
+def load_manifest(storm):
+
+    manifest_path = find_manifest(storm)
+
+    rows = []
+
+    with open(
+        manifest_path,
+        "r",
+        newline="",
+        encoding="utf-8"
+    ) as f:
+
+        reader = csv.DictReader(f)
+
+        for row in reader:
+            rows.append(row)
+
+    return rows
+
+
+# ============================================================
+# PROCESSED FILE PATH
+# ============================================================
+
+def processed_paths(storm, h5_path):
+
+    """
+    Manifest:
+
+    .../3DIMG_17MAY2020_1500_L1C_ASIA_MER_V01R00.h5
+
+    Processed:
+
+    processed/
+        insat_amphan_calibrated/
+            3DIMG_17MAY2020_1500_L1C_ASIA_MER_V01R00/
+                tir1_radiance.npy
+                wv_radiance.npy
+    """
+
+    sample_name = Path(h5_path).stem
+
+    storm_dir = (
+        PROCESSED_DIR /
+        f"insat_{storm.lower()}_calibrated"
+    )
+
+    sample_dir = (
+        storm_dir /
+        sample_name
+    )
+
+    tir_path = (
+        sample_dir /
+        "tir1_radiance.npy"
+    )
+
+    wv_path = (
+        sample_dir /
+        "wv_radiance.npy"
+    )
+
+    return tir_path, wv_path
+
+
+# ============================================================
+# COLLECT SAMPLES
+# ============================================================
+
+def collect_samples(storms):
+
+    samples = []
+
+    for storm in storms:
+
+        rows = load_manifest(storm)
+
+        print(
+            f"\n{storm}: manifest rows = {len(rows)}"
+        )
+
+        valid = 0
+        invalid = 0
+
+        for row in rows:
+
+            try:
+
+                h5_path = row["file"]
+
+                tir_path, wv_path = (
+                    processed_paths(
+                        storm,
+                        h5_path
+                    )
+                )
+
+                # --------------------------------------------
+                # Check TIR
+                # --------------------------------------------
+
+                if not tir_path.exists():
+
+                    invalid += 1
+
+                    print(
+                        f"  Missing TIR: {tir_path}"
+                    )
+
+                    continue
+
+                # --------------------------------------------
+                # Check WV
+                # --------------------------------------------
+
+                if not wv_path.exists():
+
+                    invalid += 1
+
+                    print(
+                        f"  Missing WV: {wv_path}"
+                    )
+
+                    continue
+
+                # --------------------------------------------
+                # Category
+                # --------------------------------------------
+
+                category_raw = (
+                    row["category"]
+                    .strip()
+                )
+
+                if category_raw not in CATEGORY_MAP:
+
+                    invalid += 1
+
+                    print(
+                        f"  Unknown category: "
+                        f"{category_raw}"
+                    )
+
+                    continue
+
+                category = CATEGORY_MAP[
+                    category_raw
+                ]
+
+                # --------------------------------------------
+                # Numeric labels
+                # --------------------------------------------
+
+                wind = float(
+                    row["wind_kt"]
+                )
+
+                pressure = float(
+                    row["pressure_hpa"]
+                )
+
+                # --------------------------------------------
+                # Sample
+                # --------------------------------------------
+
+                sample = {
+
+                    "storm": storm,
+
+                    "tir_path": tir_path,
+
+                    "wv_path": wv_path,
+
+                    "wind": wind,
+
+                    "pressure": pressure,
+
+                    "category": category,
+
+                    "category_name":
+                        CATEGORY_NAMES[category],
+
+                    "timestamp":
+                        row["insat_timestamp"],
+                }
+
+                samples.append(sample)
+
+                valid += 1
+
+            except Exception as e:
+
+                invalid += 1
+
+                print(
+                    f"  Error processing row: {e}"
+                )
+
+        print(
+            f"  Valid processed samples: {valid}"
+        )
+
+        print(
+            f"  Missing/invalid: {invalid}"
+        )
+
+    return samples
+
+
+# ============================================================
+# DATASET
+# ============================================================
+
+class INSATDataset(Dataset):
+
+    def __init__(
+        self,
+        samples,
+        tir_mean,
+        tir_std,
+        wv_mean,
+        wv_std,
+    ):
+
+        self.samples = samples
+
+        self.tir_mean = tir_mean
+        self.tir_std = tir_std
+
+        self.wv_mean = wv_mean
+        self.wv_std = wv_std
+
+
+    def __len__(self):
+
+        return len(self.samples)
+
+
+    def __getitem__(self, idx):
+
+        sample = self.samples[idx]
+
+        # ----------------------------------------------------
+        # Load calibrated channels
+        # ----------------------------------------------------
+
+        tir = np.load(
+            sample["tir_path"]
+        ).astype(np.float32)
+
+        wv = np.load(
+            sample["wv_path"]
+        ).astype(np.float32)
+
+        # ----------------------------------------------------
+        # Remove unnecessary dimensions
+        # ----------------------------------------------------
+
+        tir = np.squeeze(tir)
+        wv = np.squeeze(wv)
+
+        # ----------------------------------------------------
+        # Validate shapes
+        # ----------------------------------------------------
+
+        if tir.shape != (
+            IMAGE_SIZE,
+            IMAGE_SIZE
+        ):
+
+            raise ValueError(
+                f"Unexpected TIR shape "
+                f"{tir.shape} at "
+                f"{sample['tir_path']}"
+            )
+
+        if wv.shape != (
+            IMAGE_SIZE,
+            IMAGE_SIZE
+        ):
+
+            raise ValueError(
+                f"Unexpected WV shape "
+                f"{wv.shape} at "
+                f"{sample['wv_path']}"
+            )
+
+        # ----------------------------------------------------
+        # Normalize using TRAIN statistics
+        # ----------------------------------------------------
+
+        tir = (
+            tir - self.tir_mean
+        ) / self.tir_std
+
+        wv = (
+            wv - self.wv_mean
+        ) / self.wv_std
+
+        # ----------------------------------------------------
+        # 2-channel input
+        # ----------------------------------------------------
+
+        x = np.stack(
+            [tir, wv],
+            axis=0
+        )
+
+        x = torch.tensor(
+            x,
+            dtype=torch.float32
+        )
+
+        # ----------------------------------------------------
+        # Normalize wind
+        # ----------------------------------------------------
+
+        wind = sample["wind"]
+
+        wind_norm = (
+            wind - WIND_MIN
+        ) / (
+            WIND_MAX - WIND_MIN
+        )
+
+        wind_norm = np.clip(
+            wind_norm,
+            0.0,
+            1.0
+        )
+
+        # ----------------------------------------------------
+        # Return
+        # ----------------------------------------------------
+
+        return (
+
+            x,
+
+            torch.tensor(
+                sample["category"],
+                dtype=torch.long
+            ),
+
+            torch.tensor(
+                wind_norm,
+                dtype=torch.float32
+            ),
+        )
+
+
+# ============================================================
+# NORMALIZATION
+# ============================================================
+
+def calculate_normalization(samples):
+
+    print(
+        "\nCalculating train-only normalization..."
+    )
+
+    tir_values = []
+    wv_values = []
+
+    for i, sample in enumerate(samples):
+
+        tir = np.load(
+            sample["tir_path"]
+        ).astype(np.float32)
+
+        wv = np.load(
+            sample["wv_path"]
+        ).astype(np.float32)
+
+        tir = np.squeeze(tir)
+        wv = np.squeeze(wv)
+
+        # ----------------------------------------------------
+        # Sample pixels to reduce memory usage
+        # ----------------------------------------------------
+
+        max_pixels = 10000
+
+        tir_flat = tir.reshape(-1)
+        wv_flat = wv.reshape(-1)
+
+        if tir_flat.size > max_pixels:
+
+            indices = np.random.choice(
+                tir_flat.size,
+                max_pixels,
+                replace=False
+            )
+
+            tir_values.append(
+                tir_flat[indices]
+            )
+
+            wv_values.append(
+                wv_flat[indices]
+            )
+
+        else:
+
+            tir_values.append(
+                tir_flat
+            )
+
+            wv_values.append(
+                wv_flat
+            )
+
+        if (i + 1) % 20 == 0:
+
+            print(
+                f"  Processed "
+                f"{i + 1}/{len(samples)}"
+            )
+
+    tir_values = np.concatenate(
+        tir_values
+    )
+
+    wv_values = np.concatenate(
+        wv_values
+    )
+
+    tir_mean = float(
+        np.mean(tir_values)
+    )
+
+    tir_std = float(
+        np.std(tir_values)
+    )
+
+    wv_mean = float(
+        np.mean(wv_values)
+    )
+
+    wv_std = float(
+        np.std(wv_values)
+    )
+
+    # Prevent division by zero
+
+    tir_std = max(
+        tir_std,
+        1e-6
+    )
+
+    wv_std = max(
+        wv_std,
+        1e-6
+    )
+
+    print("\nNormalization statistics:")
+
+    print(
+        f"TIR mean = {tir_mean:.6f}"
+    )
+
+    print(
+        f"TIR std  = {tir_std:.6f}"
+    )
+
+    print(
+        f"WV mean  = {wv_mean:.6f}"
+    )
+
+    print(
+        f"WV std   = {wv_std:.6f}"
+    )
+
+    return (
+        tir_mean,
+        tir_std,
+        wv_mean,
+        wv_std,
+    )
+
+
+# ============================================================
+# DATASET SUMMARY
+# ============================================================
+
+def print_dataset_summary(
+    name,
+    samples
+):
+
+    print(
+        f"\n{name} dataset: "
+        f"{len(samples)} samples"
+    )
+
+    storm_counts = {}
+    category_counts = {}
+
+    for sample in samples:
+
+        storm = sample["storm"]
+
+        category = sample["category"]
+
+        storm_counts[storm] = (
+            storm_counts.get(
+                storm,
+                0
+            ) + 1
+        )
+
+        category_counts[category] = (
+            category_counts.get(
+                category,
+                0
+            ) + 1
+        )
+
+    print("Storm distribution:")
+
+    for storm, count in (
+        storm_counts.items()
+    ):
+
+        print(
+            f"  {storm:10s}: {count}"
+        )
+
+    print("Category distribution:")
+
+    for category, count in sorted(
+        category_counts.items()
+    ):
+
+        print(
+            f"  "
+            f"{CATEGORY_NAMES[category]:35s}: "
+            f"{count}"
+        )
+
+
+# ============================================================
+# CLASS WEIGHTS
+# ============================================================
+
+def calculate_class_weights(samples):
+
+    counts = np.zeros(
+        NUM_CATEGORIES,
+        dtype=np.float32
+    )
+
+    for sample in samples:
+
+        counts[
+            sample["category"]
+        ] += 1
+
+    print(
+        "\nTraining category distribution:"
+    )
+
+    for i in range(NUM_CATEGORIES):
+
+        print(
+            f"  {i}: "
+            f"{CATEGORY_NAMES[i]:35s} "
+            f"{int(counts[i])}"
+        )
+
+    # --------------------------------------------------------
+    # Inverse frequency weights
+    # --------------------------------------------------------
+
+    weights = np.zeros_like(
+        counts
+    )
+
+    total = np.sum(counts)
+
+    for i in range(NUM_CATEGORIES):
+
+        if counts[i] > 0:
+
+            weights[i] = (
+                total /
+                (
+                    NUM_CATEGORIES *
+                    counts[i]
+                )
+            )
+
+        else:
+
+            weights[i] = 0.0
+
+    print(
+        "\nClass weights:"
+    )
+
+    for i in range(NUM_CATEGORIES):
+
+        print(
+            f"  "
+            f"{CATEGORY_NAMES[i]:35s} "
+            f"{weights[i]:.4f}"
+        )
+
+    return torch.tensor(
+        weights,
+        dtype=torch.float32
+    )
+
+
+# ============================================================
+# TRAIN ONE EPOCH
+# ============================================================
+
+def train_one_epoch(
+    model,
+    loader,
+    optimizer,
+    category_loss_fn,
+    device,
+):
+
     model.train()
 
     total_loss = 0.0
-    total_cat = 0.0
-    total_int = 0.0
-    n = 0
 
-    for images, categories, intensity in loader:
-        images = images.to(DEVICE)
-        categories = categories.to(DEVICE)
-        intensity = intensity.to(DEVICE)
+    total_category_loss = 0.0
+
+    total_intensity_loss = 0.0
+
+    all_preds = []
+
+    all_targets = []
+
+    for (
+        x,
+        category,
+        wind
+    ) in loader:
+
+        x = x.to(device)
+
+        category = category.to(device)
+
+        wind = wind.to(device)
+
+        # ----------------------------------------------------
+        # Forward
+        # ----------------------------------------------------
+
+        (
+            presence_logit,
+            category_logits,
+            intensity
+        ) = model(x)
+
+        # ----------------------------------------------------
+        # Category loss
+        # ----------------------------------------------------
+
+        category_loss = category_loss_fn(
+            category_logits,
+            category
+        )
+
+        # ----------------------------------------------------
+        # Intensity loss
+        # ----------------------------------------------------
+
+        intensity_loss = (
+            nn.functional.smooth_l1_loss(
+                intensity.squeeze(-1),
+                wind
+            )
+        )
+
+        # ----------------------------------------------------
+        # Total loss
+        # ----------------------------------------------------
+
+        loss = (
+            category_loss +
+            intensity_loss
+        )
+
+        # ----------------------------------------------------
+        # Backprop
+        # ----------------------------------------------------
 
         optimizer.zero_grad()
-
-        _, category_logits, intensity_pred = model(images)
-
-        cat_loss = category_loss_fn(
-            category_logits,
-            categories,
-        )
-
-        int_loss = nn.functional.smooth_l1_loss(
-            intensity_pred,
-            intensity,
-        )
-
-        loss = cat_loss + INTENSITY_WEIGHT * int_loss
 
         loss.backward()
 
         torch.nn.utils.clip_grad_norm_(
             model.parameters(),
-            max_norm=5.0,
+            max_norm=5.0
         )
 
         optimizer.step()
 
-        bs = images.size(0)
-        total_loss += loss.item() * bs
-        total_cat += cat_loss.item() * bs
-        total_int += int_loss.item() * bs
-        n += bs
+        # ----------------------------------------------------
+        # Metrics
+        # ----------------------------------------------------
 
-    return (
-        total_loss / max(n, 1),
-        total_cat / max(n, 1),
-        total_int / max(n, 1),
-    )
+        total_loss += loss.item()
 
+        total_category_loss += (
+            category_loss.item()
+        )
 
-@torch.no_grad()
-def evaluate(model, loader):
-    model.eval()
+        total_intensity_loss += (
+            intensity_loss.item()
+        )
 
-    total_loss = 0.0
-    total_cat = 0.0
-    total_int = 0.0
-    correct = 0
-    n = 0
-
-    all_pred = []
-    all_true = []
-    all_int_pred = []
-    all_int_true = []
-
-    for images, categories, intensity in loader:
-        images = images.to(DEVICE)
-        categories = categories.to(DEVICE)
-        intensity = intensity.to(DEVICE)
-
-        _, category_logits, intensity_pred = model(images)
-
-        cat_loss = nn.functional.cross_entropy(
+        preds = torch.argmax(
             category_logits,
-            categories,
+            dim=1
         )
 
-        int_loss = nn.functional.smooth_l1_loss(
-            intensity_pred,
-            intensity,
+        all_preds.extend(
+            preds.detach()
+            .cpu()
+            .numpy()
         )
 
-        loss = cat_loss + INTENSITY_WEIGHT * int_loss
+        all_targets.extend(
+            category.detach()
+            .cpu()
+            .numpy()
+        )
 
-        pred = category_logits.argmax(dim=1)
-
-        bs = images.size(0)
-
-        total_loss += loss.item() * bs
-        total_cat += cat_loss.item() * bs
-        total_int += int_loss.item() * bs
-
-        correct += (pred == categories).sum().item()
-        n += bs
-
-        all_pred.append(pred.cpu())
-        all_true.append(categories.cpu())
-        all_int_pred.append(intensity_pred.cpu())
-        all_int_true.append(intensity.cpu())
-
-    pred = torch.cat(all_pred)
-    true = torch.cat(all_true)
-
-    int_pred = torch.cat(all_int_pred)
-    int_true = torch.cat(all_int_true)
-
-    # Convert normalized MAE back to knots.
-    wind_mae = (
-        torch.abs(int_pred - int_true).mean().item()
-        * (WIND_MAX - WIND_MIN)
+    accuracy = accuracy_score(
+        all_targets,
+        all_preds
     )
+
+    n = len(loader)
 
     return {
-        "loss": total_loss / max(n, 1),
-        "category_loss": total_cat / max(n, 1),
-        "intensity_loss": total_int / max(n, 1),
-        "category_accuracy": correct / max(n, 1),
-        "wind_mae_kt": wind_mae,
-        "pred": pred,
-        "true": true,
+
+        "loss":
+            total_loss / n,
+
+        "category_loss":
+            total_category_loss / n,
+
+        "intensity_loss":
+            total_intensity_loss / n,
+
+        "accuracy":
+            accuracy,
     }
 
 
-def save_checkpoint(model, mean, std, epoch, metrics, path):
-    torch.save(
-        {
-            "model_state_dict": model.state_dict(),
-            "epoch": epoch,
-            "num_categories": len(CATEGORIES),
-            "categories": CATEGORIES,
-            "in_channels": 2,
-            "normalization_mean": mean,
-            "normalization_std": std,
-            "wind_min_kt": WIND_MIN,
-            "wind_max_kt": WIND_MAX,
-            "metrics": metrics,
-        },
-        path,
+# ============================================================
+# EVALUATION
+# ============================================================
+
+@torch.no_grad()
+def evaluate(
+    model,
+    loader,
+    device,
+):
+
+    model.eval()
+
+    total_loss = 0.0
+
+    total_category_loss = 0.0
+
+    total_intensity_loss = 0.0
+
+    all_preds = []
+
+    all_targets = []
+
+    all_wind_pred = []
+
+    all_wind_true = []
+
+    for (
+        x,
+        category,
+        wind
+    ) in loader:
+
+        x = x.to(device)
+
+        category = category.to(device)
+
+        wind = wind.to(device)
+
+        (
+            presence_logit,
+            category_logits,
+            intensity
+        ) = model(x)
+
+        # ----------------------------------------------------
+        # Category loss
+        # ----------------------------------------------------
+
+        category_loss = (
+            nn.functional.cross_entropy(
+                category_logits,
+                category
+            )
+        )
+
+        # ----------------------------------------------------
+        # Intensity loss
+        # ----------------------------------------------------
+
+        intensity_loss = (
+            nn.functional.smooth_l1_loss(
+                intensity.squeeze(-1),
+                wind
+            )
+        )
+
+        loss = (
+            category_loss +
+            intensity_loss
+        )
+
+        total_loss += loss.item()
+
+        total_category_loss += (
+            category_loss.item()
+        )
+
+        total_intensity_loss += (
+            intensity_loss.item()
+        )
+
+        # ----------------------------------------------------
+        # Category predictions
+        # ----------------------------------------------------
+
+        preds = torch.argmax(
+            category_logits,
+            dim=1
+        )
+
+        all_preds.extend(
+            preds.cpu().numpy()
+        )
+
+        all_targets.extend(
+            category.cpu().numpy()
+        )
+
+        # ----------------------------------------------------
+        # Wind predictions
+        # ----------------------------------------------------
+
+        all_wind_pred.extend(
+            intensity.squeeze(-1)
+            .cpu()
+            .numpy()
+        )
+
+        all_wind_true.extend(
+            wind.cpu()
+            .numpy()
+        )
+
+    # --------------------------------------------------------
+    # Accuracy
+    # --------------------------------------------------------
+
+    accuracy = accuracy_score(
+        all_targets,
+        all_preds
     )
 
+    # --------------------------------------------------------
+    # Convert normalized wind back to knots
+    # --------------------------------------------------------
+
+    wind_pred_kt = (
+        np.array(all_wind_pred)
+        *
+        (WIND_MAX - WIND_MIN)
+        +
+        WIND_MIN
+    )
+
+    wind_true_kt = (
+        np.array(all_wind_true)
+        *
+        (WIND_MAX - WIND_MIN)
+        +
+        WIND_MIN
+    )
+
+    wind_mae = mean_absolute_error(
+        wind_true_kt,
+        wind_pred_kt
+    )
+
+    n = len(loader)
+
+    return {
+
+        "loss":
+            total_loss / n,
+
+        "category_loss":
+            total_category_loss / n,
+
+        "intensity_loss":
+            total_intensity_loss / n,
+
+        "accuracy":
+            accuracy,
+
+        "wind_mae":
+            wind_mae,
+    }
+
+
+# ============================================================
+# MAIN
+# ============================================================
 
 def main():
-    set_seed()
 
-    global TRAIN_DF, DEVICE
+    # ========================================================
+    # LOAD DATA
+    # ========================================================
 
-    DEVICE = (
-        torch.device("cuda")
-        if torch.cuda.is_available()
-        else torch.device("cpu")
+    print(
+        "\nLoading manifests..."
     )
 
-    print(f"\nDevice: {DEVICE}")
-    if DEVICE.type == "cuda":
-        print(f"GPU: {torch.cuda.get_device_name(0)}")
+    train_samples = collect_samples(
+        TRAIN_STORMS
+    )
 
-    df = add_paths_and_labels(load_manifest())
+    val_samples = collect_samples(
+        VAL_STORMS
+    )
 
-    train_df = df[df["cyclone"].isin(TRAIN_STORMS)].copy()
-    val_df = df[df["cyclone"].isin(VAL_STORMS)].copy()
-    test_df = df[df["cyclone"].isin(TEST_STORMS)].copy()
+    test_samples = collect_samples(
+        TEST_STORMS
+    )
 
-    TRAIN_DF = train_df
+    if len(train_samples) == 0:
 
-    print("\n" + "=" * 70)
-    print("STORM-LEVEL SPLIT")
-    print("=" * 70)
-    print(f"Train: {len(train_df)} -> {TRAIN_STORMS}")
-    print(f"Val  : {len(val_df)} -> {VAL_STORMS}")
-    print(f"Test : {len(test_df)} -> {TEST_STORMS}")
+        raise RuntimeError(
+            "No training samples found."
+        )
 
-    if len(train_df) == 0 or len(val_df) == 0 or len(test_df) == 0:
-        raise RuntimeError("Train/val/test split is empty.")
+    if len(val_samples) == 0:
 
-    # IMPORTANT: statistics come from TRAIN ONLY.
-    mean, std = calculate_train_stats(train_df)
+        raise RuntimeError(
+            "No validation samples found."
+        )
 
-    print("\nTRAIN-ONLY NORMALIZATION")
-    print(f"TIR1 mean={mean[0]:.8f}, std={std[0]:.8f}")
-    print(f"WV   mean={mean[1]:.8f}, std={std[1]:.8f}")
+    if len(test_samples) == 0:
 
-    train_ds = INSATDataset(train_df, mean, std)
-    val_ds = INSATDataset(val_df, mean, std)
-    test_ds = INSATDataset(test_df, mean, std)
+        raise RuntimeError(
+            "No test samples found."
+        )
+
+    # ========================================================
+    # SUMMARY
+    # ========================================================
+
+    print_dataset_summary(
+        "TRAIN",
+        train_samples
+    )
+
+    print_dataset_summary(
+        "VAL",
+        val_samples
+    )
+
+    print_dataset_summary(
+        "TEST",
+        test_samples
+    )
+
+    # ========================================================
+    # NORMALIZATION
+    # ========================================================
+
+    (
+        tir_mean,
+        tir_std,
+        wv_mean,
+        wv_std,
+    ) = calculate_normalization(
+        train_samples
+    )
+
+    # ========================================================
+    # DATASETS
+    # ========================================================
+
+    train_dataset = INSATDataset(
+        train_samples,
+        tir_mean,
+        tir_std,
+        wv_mean,
+        wv_std,
+    )
+
+    val_dataset = INSATDataset(
+        val_samples,
+        tir_mean,
+        tir_std,
+        wv_mean,
+        wv_std,
+    )
+
+    test_dataset = INSATDataset(
+        test_samples,
+        tir_mean,
+        tir_std,
+        wv_mean,
+        wv_std,
+    )
+
+    # ========================================================
+    # DATALOADERS
+    # ========================================================
 
     train_loader = DataLoader(
-        train_ds,
+        train_dataset,
         batch_size=BATCH_SIZE,
         shuffle=True,
         num_workers=0,
+        pin_memory=torch.cuda.is_available(),
     )
 
     val_loader = DataLoader(
-        val_ds,
+        val_dataset,
         batch_size=BATCH_SIZE,
         shuffle=False,
         num_workers=0,
+        pin_memory=torch.cuda.is_available(),
     )
 
     test_loader = DataLoader(
-        test_ds,
+        test_dataset,
         batch_size=BATCH_SIZE,
         shuffle=False,
         num_workers=0,
+        pin_memory=torch.cuda.is_available(),
     )
 
+    # ========================================================
+    # MODEL
+    # ========================================================
+
     model = CycloneCNN(
-        num_categories=len(CATEGORIES),
-        in_channels=2,
+        num_categories=NUM_CATEGORIES,
+        in_channels=IN_CHANNELS,
     ).to(DEVICE)
 
-    category_loss_fn = make_loss()
+    print(
+        "\nModel:"
+    )
+
+    print(model)
+
+    # ========================================================
+    # CLASS WEIGHTS
+    # ========================================================
+
+    class_weights = (
+        calculate_class_weights(
+            train_samples
+        )
+        .to(DEVICE)
+    )
+
+    category_loss_fn = (
+        nn.CrossEntropyLoss(
+            weight=class_weights
+        )
+    )
+
+    # ========================================================
+    # OPTIMIZER
+    # ========================================================
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -483,117 +1307,379 @@ def main():
         weight_decay=WEIGHT_DECAY,
     )
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode="min",
-        factor=0.5,
-        patience=5,
+    scheduler = (
+        torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            factor=0.5,
+            patience=5,
+        )
     )
 
-    ckpt_dir = ROOT / "checkpoints"
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    # ========================================================
+    # TRAINING
+    # ========================================================
 
-    best_path = ckpt_dir / "classifier_insat.pt"
-    stats_path = (
-        ROOT
-        / "data"
-        / "processed"
-        / "insat_training_stats.npz"
-    )
+    best_val_loss = float("inf")
 
-    np.savez(
-        stats_path,
-        mean=mean,
-        std=std,
-        wind_min=WIND_MIN,
-        wind_max=WIND_MAX,
-    )
+    best_epoch = 0
 
-    best_val = float("inf")
+    history = []
 
-    print("\n" + "=" * 70)
-    print("TRAINING REAL INSAT CLASSIFIER")
+    print("\n")
+
+    print("=" * 70)
+    print("STARTING TRAINING")
     print("=" * 70)
 
-    for epoch in range(1, EPOCHS + 1):
-        train_loss, train_cat, train_int = run_epoch(
-            model,
-            train_loader,
-            optimizer,
-            category_loss_fn,
+    for epoch in range(
+        1,
+        EPOCHS + 1
+    ):
+
+        # ----------------------------------------------------
+        # Train
+        # ----------------------------------------------------
+
+        train_metrics = (
+            train_one_epoch(
+                model,
+                train_loader,
+                optimizer,
+                category_loss_fn,
+                DEVICE,
+            )
         )
 
-        val = evaluate(model, val_loader)
-        scheduler.step(val["loss"])
+        # ----------------------------------------------------
+        # Validation
+        # ----------------------------------------------------
 
-        marker = ""
+        val_metrics = evaluate(
+            model,
+            val_loader,
+            DEVICE,
+        )
 
-        if val["loss"] < best_val:
-            best_val = val["loss"]
+        # ----------------------------------------------------
+        # Scheduler
+        # ----------------------------------------------------
 
-            save_checkpoint(
-                model,
-                mean,
-                std,
-                epoch,
-                val,
-                best_path,
-            )
+        scheduler.step(
+            val_metrics["loss"]
+        )
 
-            marker = "  <-- BEST"
+        current_lr = (
+            optimizer
+            .param_groups[0]["lr"]
+        )
+
+        # ----------------------------------------------------
+        # Print
+        # ----------------------------------------------------
 
         print(
-            f"epoch {epoch:02d}/{EPOCHS} | "
-            f"train={train_loss:.4f} | "
-            f"cat={train_cat:.4f} | "
-            f"int={train_int:.4f} | "
-            f"val={val['loss']:.4f} | "
-            f"val_acc={val['category_accuracy']:.3f} | "
-            f"val_wind_mae={val['wind_mae_kt']:.2f}kt"
-            f"{marker}"
+            f"\nEpoch "
+            f"{epoch:02d}/{EPOCHS}"
         )
 
-    print("\n" + "=" * 70)
-    print("FINAL TEST")
+        print(
+            f"  "
+            f"train_loss="
+            f"{train_metrics['loss']:.4f} "
+            f"| train_cat="
+            f"{train_metrics['category_loss']:.4f} "
+            f"| train_int="
+            f"{train_metrics['intensity_loss']:.4f} "
+            f"| train_acc="
+            f"{train_metrics['accuracy']:.3f}"
+        )
+
+        print(
+            f"  "
+            f"val_loss="
+            f"{val_metrics['loss']:.4f} "
+            f"| val_cat="
+            f"{val_metrics['category_loss']:.4f} "
+            f"| val_int="
+            f"{val_metrics['intensity_loss']:.4f} "
+            f"| val_acc="
+            f"{val_metrics['accuracy']:.3f} "
+            f"| wind_MAE="
+            f"{val_metrics['wind_mae']:.2f} kt"
+        )
+
+        print(
+            f"  lr={current_lr:.6g}"
+        )
+
+        # ----------------------------------------------------
+        # History
+        # ----------------------------------------------------
+
+        history.append([
+            epoch,
+
+            train_metrics["loss"],
+            train_metrics["category_loss"],
+            train_metrics["intensity_loss"],
+            train_metrics["accuracy"],
+
+            val_metrics["loss"],
+            val_metrics["category_loss"],
+            val_metrics["intensity_loss"],
+            val_metrics["accuracy"],
+            val_metrics["wind_mae"],
+        ])
+
+        # ----------------------------------------------------
+        # Save best model
+        # ----------------------------------------------------
+
+        if (
+            val_metrics["loss"]
+            <
+            best_val_loss
+        ):
+
+            best_val_loss = (
+                val_metrics["loss"]
+            )
+
+            best_epoch = epoch
+
+            torch.save(
+                {
+
+                    "model_state_dict":
+                        model.state_dict(),
+
+                    "num_categories":
+                        NUM_CATEGORIES,
+
+                    "in_channels":
+                        IN_CHANNELS,
+
+                    "category_names":
+                        CATEGORY_NAMES,
+
+                    "category_map":
+                        CATEGORY_MAP,
+
+                    "tir_mean":
+                        tir_mean,
+
+                    "tir_std":
+                        tir_std,
+
+                    "wv_mean":
+                        wv_mean,
+
+                    "wv_std":
+                        wv_std,
+
+                    "wind_min":
+                        WIND_MIN,
+
+                    "wind_max":
+                        WIND_MAX,
+
+                    "epoch":
+                        epoch,
+
+                    "val_loss":
+                        val_metrics["loss"],
+
+                    "val_accuracy":
+                        val_metrics["accuracy"],
+
+                    "val_wind_mae":
+                        val_metrics["wind_mae"],
+                },
+
+                OUTPUT_MODEL,
+            )
+
+            print(
+                f"  ★ BEST MODEL SAVED "
+                f"(epoch {epoch})"
+            )
+
+    # ========================================================
+    # LOAD BEST MODEL
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 70)
+    print("LOADING BEST MODEL")
     print("=" * 70)
 
     checkpoint = torch.load(
-        best_path,
+        OUTPUT_MODEL,
         map_location=DEVICE,
-        weights_only=False,
     )
 
-    model.load_state_dict(checkpoint["model_state_dict"])
-
-    test = evaluate(model, test_loader)
-
-    print(f"Test loss       : {test['loss']:.4f}")
-    print(f"Test category   : {test['category_accuracy']:.3f}")
-    print(f"Test wind MAE   : {test['wind_mae_kt']:.2f} kt")
-
-    print("\nTest predictions:")
-    for p, t in zip(
-        test["pred"].tolist(),
-        test["true"].tolist(),
-    ):
-        print(
-            f"  predicted={CATEGORIES[p]:35s} "
-            f"actual={CATEGORIES[t]}"
-        )
-
-    print("\n" + "=" * 70)
-    print("DONE")
-    print("=" * 70)
-    print(f"Checkpoint : {best_path}")
-    print(f"Stats      : {stats_path}")
+    model.load_state_dict(
+        checkpoint["model_state_dict"]
+    )
 
     print(
-        "\nNOTE: presence/cyclone-vs-no-cyclone is NOT a valid "
-        "metric yet because this dataset contains only positive "
-        "cyclone samples. Add negative INSAT samples before using "
-        "the presence head."
+        f"Best epoch: "
+        f"{checkpoint['epoch']}"
+    )
+
+    print(
+        f"Best val loss: "
+        f"{checkpoint['val_loss']:.4f}"
+    )
+
+    # ========================================================
+    # FINAL VALIDATION
+    # ========================================================
+
+    final_val = evaluate(
+        model,
+        val_loader,
+        DEVICE,
+    )
+
+    # ========================================================
+    # FINAL TEST
+    # ========================================================
+
+    final_test = evaluate(
+        model,
+        test_loader,
+        DEVICE,
+    )
+
+    # ========================================================
+    # RESULTS
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 70)
+    print("FINAL RESULTS")
+    print("=" * 70)
+
+    print(
+        "\nValidation — BIPARJOY"
+    )
+
+    print(
+        f"Loss: "
+        f"{final_val['loss']:.4f}"
+    )
+
+    print(
+        f"Accuracy: "
+        f"{final_val['accuracy'] * 100:.2f}%"
+    )
+
+    print(
+        f"Wind MAE: "
+        f"{final_val['wind_mae']:.2f} kt"
+    )
+
+    print(
+        "\nTest — MICHAUNG"
+    )
+
+    print(
+        f"Loss: "
+        f"{final_test['loss']:.4f}"
+    )
+
+    print(
+        f"Accuracy: "
+        f"{final_test['accuracy'] * 100:.2f}%"
+    )
+
+    print(
+        f"Wind MAE: "
+        f"{final_test['wind_mae']:.2f} kt"
+    )
+
+    # ========================================================
+    # SAVE STATS
+    # ========================================================
+
+    history = np.array(
+        history,
+        dtype=np.float32
+    )
+
+    np.savez(
+        OUTPUT_STATS,
+
+        history=history,
+
+        tir_mean=tir_mean,
+        tir_std=tir_std,
+
+        wv_mean=wv_mean,
+        wv_std=wv_std,
+
+        train_count=len(
+            train_samples
+        ),
+
+        val_count=len(
+            val_samples
+        ),
+
+        test_count=len(
+            test_samples
+        ),
+
+        best_epoch=best_epoch,
+
+        best_val_loss=best_val_loss,
+
+        final_val_accuracy=(
+            final_val["accuracy"]
+        ),
+
+        final_val_wind_mae=(
+            final_val["wind_mae"]
+        ),
+
+        final_test_accuracy=(
+            final_test["accuracy"]
+        ),
+
+        final_test_wind_mae=(
+            final_test["wind_mae"]
+        ),
+    )
+
+    # ========================================================
+    # DONE
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 70)
+    print("DONE")
+    print("=" * 70)
+
+    print(
+        f"Model saved to:\n"
+        f"{OUTPUT_MODEL}"
+    )
+
+    print(
+        f"\nTraining stats saved to:\n"
+        f"{OUTPUT_STATS}"
     )
 
 
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
 if __name__ == "__main__":
+
     main()

@@ -77,7 +77,9 @@ def process(storm):
 
     bt = pd.read_csv(best)
     bt["timestamp"] = pd.to_datetime(
-        bt["timestamp"], utc=True
+        bt["timestamp"],
+        dayfirst=True,
+        utc=True
     )
 
     print("Best-track:", len(bt))
@@ -133,8 +135,8 @@ def process(storm):
         try:
             row, col = pixel_from_latlon(
                 path,
-                float(label["latitude"]),
-                float(label["longitude"])
+                float(label["lat"]),
+                float(label["lon"])
             )
 
             with h5py.File(path, "r") as f:
@@ -177,11 +179,11 @@ def process(storm):
                 "label_timestamp": target.isoformat(),
                 "insat_timestamp": insat_time.isoformat(),
                 "time_diff_hours": diff,
-                "latitude": label["latitude"],
-                "longitude": label["longitude"],
+                "latitude": label["lat"],
+                "longitude": label["lon"],
                 "wind_kt": label["wind_kt"],
                 "pressure_hpa": label["pressure_hpa"],
-                "category": label["category"],
+                "category": label["grade"],
                 "pixel_row": row,
                 "pixel_col": col,
                 "file": str(path)

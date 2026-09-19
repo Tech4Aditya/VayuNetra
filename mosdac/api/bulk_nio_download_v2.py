@@ -3,32 +3,61 @@ import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
 
-CONFIG = Path("config.json")
+
+# ============================================================
+# PATHS
+# ============================================================
+
+API_DIR = Path(__file__).resolve().parent
+CONFIG = API_DIR / "config.json"
+
+
+# ============================================================
+# TAUKTAE ONLY
+#
+# Best-track:
+# 14 May 2021 -> 18 May 2021
+#
+# One request per day.
+# ============================================================
 
 STORMS = [
-    ("AMPHAN",   "2020-05-16", "2020-05-22", "80.0,5.0,95.0,25.0"),
-    ("NISARGA",  "2020-06-01", "2020-06-05", "65.0,5.0,80.0,25.0"),
-    ("YAAS",     "2021-05-23", "2021-05-28", "80.0,5.0,95.0,25.0"),
-    ("GULAAB",   "2021-09-24", "2021-09-29", "80.0,5.0,95.0,25.0"),
-    ("ASANI",    "2022-05-07", "2022-05-13", "80.0,5.0,95.0,25.0"),
-    ("BIPARJOY", "2023-06-06", "2023-06-20", "60.0,5.0,80.0,30.0"),
-    ("MICHAUNG", "2023-12-01", "2023-12-06", "80.0,5.0,95.0,25.0"),
+    (
+        "TAUKTAE",
+        "2021-05-14",
+        "2021-05-18",
+        "65.0,5.0,80.0,25.0"
+    ),
 ]
+
+
+# ============================================================
+# DATE GENERATOR
+# ============================================================
+
+def dates_between(start, end):
+    start_date = datetime.strptime(start, "%Y-%m-%d")
+    end_date = datetime.strptime(end, "%Y-%m-%d")
+
+    current = start_date
+
+    while current < end_date:
+        yield current
+        current += timedelta(days=1)
+
+
+# ============================================================
+# MAIN
+# ============================================================
 
 with open(CONFIG, "r", encoding="utf-8") as f:
     config = json.load(f)
 
-def dates_between(start, end):
-    d = datetime.strptime(start, "%Y-%m-%d")
-    last = datetime.strptime(end, "%Y-%m-%d")
-
-    while d < last:
-        yield d
-        d += timedelta(days=1)
 
 for storm, start, end, bbox in STORMS:
 
-    print("\n" + "#" * 75)
+    print()
+    print("#" * 75)
     print(f"# {storm}")
     print("#" * 75)
 
@@ -36,32 +65,65 @@ for storm, start, end, bbox in STORMS:
 
         next_day = day + timedelta(days=1)
 
-        s = day.strftime("%Y-%m-%d")
-        e = next_day.strftime("%Y-%m-%d")
+        start_time = day.strftime("%Y-%m-%d")
+        end_time = next_day.strftime("%Y-%m-%d")
 
-        print("\n" + "=" * 70)
-        print(f"{storm}: {s} -> {e}")
+        print()
+        print("=" * 70)
+        print(f"{storm}: {start_time} -> {end_time}")
         print("=" * 70)
 
-        config["search_parameters"]["datasetId"] = \
-            "3DIMG_L1C_ASIA_MER"
+        # ----------------------------------------------------
+        # Update MOSDAC search parameters
+        # ----------------------------------------------------
 
-        config["search_parameters"]["startTime"] = s
-        config["search_parameters"]["endTime"] = e
+        config["search_parameters"]["datasetId"] = (
+            "3DIMG_L1C_ASIA_MER"
+        )
+
+        config["search_parameters"]["startTime"] = start_time
+        config["search_parameters"]["endTime"] = end_time
         config["search_parameters"]["count"] = "20"
         config["search_parameters"]["boundingBox"] = bbox
+
+        # ----------------------------------------------------
+        # Save config
+        # ----------------------------------------------------
 
         with open(CONFIG, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=4)
 
+        # ----------------------------------------------------
+        # Run official MOSDAC downloader
+        # ----------------------------------------------------
+
         result = subprocess.run(
             ["python", "mdapi.py"],
+            cwd=API_DIR,
             check=False
         )
 
         if result.returncode != 0:
-            print(f"[WARN] Downloader exited with code {result.returncode}")
 
-print("\n" + "#" * 75)
-print("# ALL NIO DAILY WINDOWS FINISHED")
+            print(
+                f"[WARN] Downloader failed for "
+                f"{storm} {start_time}"
+            )
+
+            print(
+                f"       Return code: "
+                f"{result.returncode}"
+            )
+
+        else:
+
+            print(
+                f"[OK] Download completed: "
+                f"{start_time} -> {end_time}"
+            )
+
+
+print()
+print("#" * 75)
+print("# TAUKTAE DOWNLOAD FINISHED")
 print("#" * 75)
