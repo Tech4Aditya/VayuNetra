@@ -3,327 +3,285 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Vayu Drishti — VayuNetra</title>
+<title>VayuNetra — Cyclone Intelligence Console</title>
 <link rel="stylesheet" href="style.css">
+<meta name="theme-color" content="#eaf4fb">
+<link rel="icon" type="image/png" href="assets/vayunetra-logo.png">
+<link rel="apple-touch-icon" href="assets/vayunetra-logo.png">
 </head>
-
 <body>
+<div class="login-screen" id="loginScreen" aria-label="VayuNetra admin sign in">
+  <div class="login-bg-grid"></div>
+  <div class="login-orbit login-orbit-a"></div><div class="login-orbit login-orbit-b"></div>
+  <div class="login-scan"></div>
+  <div class="login-panel">
+    <div class="login-brand"><div class="login-logo"><img src="assets/vayunetra-logo.png" alt="VayuNetra"></div><div><strong>VAYUNETRA</strong><span>CYCLONE INTELLIGENCE CONSOLE</span></div></div>
+    <div class="login-kicker">SECURE NODE / ADMIN ACCESS</div>
+    <h1>Sign in to<br><span>VayuNetra</span></h1>
+    <p class="login-sub">Access the local cyclone intelligence node and live inference console.</p>
+    <form id="loginForm" autocomplete="off">
+      <label for="loginUser">USER ID</label>
+      <input id="loginUser" name="username" type="text" placeholder="admin" required>
+      <label for="loginPass">PASSWORD</label>
+      <input id="loginPass" name="password" type="password" placeholder="••••••••" required>
+      <button class="login-btn" type="submit"><span>ENTER CONSOLE</span><b>↗</b></button>
+    </form>
+    <div class="login-note"><span class="status-dot"></span> DEMO ADMIN PORTAL · ANY NON-EMPTY ID / PASSWORD ACCEPTED</div>
+    <div class="login-footer"><span>LOCAL NODE</span><span>VAYUNETRA / SIH</span></div>
+  </div>
+</div>
+<div class="noise"></div>
+<div class="app-shell" id="consoleShell" aria-hidden="true">
 
-<div class="page-shell">
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark"><img src="assets/vayunetra-logo.png" alt="VayuNetra cyclone logo"></div>
+    <div>
+      <div class="brand-name">VAYUNETRA</div>
+      <div class="brand-sub">CYCLONE INTELLIGENCE CONSOLE / SIH</div>
+    </div>
+  </div>
+  <nav class="window-nav" aria-label="Console windows">
+    <button data-window="overview" class="nav-btn active">OVERVIEW</button>
+    <button data-window="live" class="nav-btn">LIVE ANALYSIS</button>
+    <button data-window="satellite" class="nav-btn">SATELLITE</button>
+    <button data-window="forecast" class="nav-btn">FORECAST</button>
+    <button data-window="sources" class="nav-btn">DATA SOURCES</button>
+    <button data-window="reports" class="nav-btn">REPORTS</button>
+  </nav>
+  <div class="node-status">
+    <span class="status-dot" id="systemDot"></span>
+    <span id="systemState">CONNECTING</span>
+    <span class="divider"></span>
+    <span id="clock">--:--:-- IST</span>
+  </div>
+</header>
 
-    <!-- TOP NAV -->
-    <header class="topbar">
-        <div class="brand">
-            <div class="brand-mark">VN</div>
-            <div>
-                <div class="brand-name">VAYUNETRA</div>
-                <div class="brand-sub">CYCLONE INTELLIGENCE CONSOLE</div>
-            </div>
-        </div>
+<main>
+<section class="hero">
+  <div class="hero-copy">
+    <div class="eyebrow">REAL-TIME CYCLONE MONITORING / MULTI-SOURCE INTELLIGENCE</div>
+    <h1>Vayu<span>Netra</span></h1>
+    <p>Track. Analyse. Be Prepared.</p>
+    <div class="hero-rule"></div>
+    <div class="hero-actions">
+      <button class="primary-btn" id="liveBtn">▶ RUN TCIR LIVE ANALYSIS</button>
+      <button class="secondary-btn" id="insatBtn">◉ RUN INSAT ANALYSIS</button>
+      <button class="secondary-btn" id="sourceBtn">▦ DATA SOURCES</button>
+    </div>
+    <div class="status-line"><span class="pulse"></span><span id="statusText">Initializing local inference node…</span></div>
+  </div>
+  <div class="hero-visual">
+    <div class="map-grid"></div>
+    <div class="map-cross cross-a"></div><div class="map-cross cross-b"></div>
+    <div class="orbit orbit-a"></div><div class="orbit orbit-b"></div>
+    <div class="storm-core"></div>
+    <div class="map-label m1">INDIAN OCEAN / 10°N</div>
+    <div class="map-label m2">TCIR / IR + PMW</div>
+    <div class="map-label m3">LOCAL INFERENCE</div>
+  </div>
+</section>
 
-        <div class="node-status">
-            <span class="status-dot" id="systemDot"></span>
-            <span id="systemState">LOCAL INFERENCE NODE</span>
-            <span class="divider"></span>
-            <span id="clock">--:--:-- IST</span>
-        </div>
+<section class="metric-grid">
+  <article class="metric-card cyan">
+    <div class="card-head"><span>01 / ACTIVE CYCLONE</span><span>◉</span></div>
+    <div class="metric-number" id="activeCyclones">00</div>
+    <div class="metric-caption" id="activeCycloneCaption">WAITING FOR TCIR INFERENCE</div>
+    <div class="entity-row">
+      <span class="severity-dot"></span>
+      <div><strong id="cycloneName">TCIR TEST SAMPLE</strong><small id="cycloneCategory">Awaiting inference</small></div>
+      <div class="entity-meta"><span>WIND <b id="cycloneWind">—</b></span><span>ID <b id="cycloneId">—</b></span></div>
+    </div>
+  </article>
 
-        <div class="top-actions">
-            <span class="environment">DEVELOPMENT</span>
-            <button id="refreshBtn" class="icon-btn" title="Refresh backend status">↻</button>
-        </div>
-    </header>
+  <article class="metric-card blue">
+    <div class="card-head"><span>02 / SATELLITE OBSERVATION</span><span>☁</span></div>
+    <div class="sat-preview">
+      <canvas id="frameCanvas" width="180" height="180"></canvas>
+      <div class="sat-meta">
+        <label>SOURCE</label><strong id="frameSource">WAITING</strong>
+        <label>CHANNELS</label><strong id="channelValue">IR + PMW</strong>
+        <label>FRAMES</label><strong id="framesReceived">—</strong>
+        <label>WINDOW</label><strong id="temporalMode">—</strong>
+      </div>
+    </div>
+    <div class="legend" id="legendBar"></div>
+    <div class="legend-labels"><span>WARM</span><span>COLD / DEEP CONVECTION</span></div>
+  </article>
 
-    <!-- HERO -->
-    <section class="hero">
-        <div class="hero-content">
-            <div class="eyebrow">REAL-TIME CYCLONE MONITORING &amp; ANALYSIS</div>
+  <article class="metric-card violet">
+    <div class="card-head"><span>03 / TRACK &amp; NOWCAST</span><span>⌁</span></div>
+    <div class="track-mini">
+      <div><label>POSITION</label><strong id="trackPosition">—</strong></div>
+      <div><label>MOTION</label><strong id="trackDirection">—</strong></div>
+      <div><label>SPEED</label><strong id="trackSpeed">—</strong></div>
+    </div>
+    <div class="track-mini-line">
+      <span>OBSERVED <b id="trackHistoryCount">0</b></span>
+      <span>PROJECTED <b id="trackProjectionCount">0</b></span>
+    </div>
+    <div class="scope-note" id="trackProjectionNote">Verified best-track coordinates + short-horizon motion nowcast. No illustrative/demo coordinates are used.</div>
+  </article>
 
-            <h1>Vayu Drishti</h1>
+  <article class="metric-card amber">
+    <div class="card-head"><span>04 / STORM INTENSITY</span><span>≋</span></div>
+    <div class="intensity-main">
+      <div class="gauge"><div class="gauge-value" id="intensityValue">—</div><small>kt</small></div>
+      <div class="intensity-info">
+        <label>CATEGORY</label><strong id="predCategory">—</strong>
+        <label>PRESSURE</label><b id="pressureValue">— hPa</b>
+        <label>SIZE</label><b id="sizeValue">— nmi</b>
+      </div>
+    </div>
+    <div class="intensity-note" id="intensityNote">Waiting for model inference.</div>
+  </article>
+</section>
 
-            <p class="hero-tagline">Track. Analyse. Be Prepared.</p>
+<section class="workspace">
+  <div class="section-head">
+    <div><div class="eyebrow">MODEL STACK</div><h2>One console. Multiple inference paths.</h2></div>
+    <div class="badge" id="sequenceTag">READY</div>
+  </div>
+  <div class="model-grid">
+    <button class="model-card" data-window="live"><span class="model-index">01</span><strong>TCIR TEMPORAL</strong><small>4 chronological frames · IR + PMW · 9h context</small><em id="tcirState">CHECKING</em></button>
+    <button class="model-card" data-window="satellite"><span class="model-index">02</span><strong>INSAT REAL DATA</strong><small>TIR1 + WV · 7 intensity categories</small><em id="insatState">CHECKING</em></button>
+    <button class="model-card" data-window="comparison"><span class="model-index">03</span><strong>TCIR SINGLE FRAME</strong><small>Single-frame intensity CNN · comparison path</small><em id="singleState">CHECKING</em></button>
+    <button class="model-card" data-window="sources"><span class="model-index">04</span><strong>SYNTHETIC VALIDATION</strong><small>Pipeline validation only · not real-world evidence</small><em id="syntheticState">VALIDATION ONLY</em></button>
+  </div>
+</section>
 
-            <div class="hero-rule"></div>
+<section class="analysis-strip">
+  <article class="analysis-panel">
+    <div class="panel-title"><span>CLASSIFICATION</span><span>TCIR DERIVED</span></div>
+    <div class="category-big" id="predCategorySecondary">—</div>
+    <div class="mini-bars" id="categoryBars"><div class="empty-note">Run analysis to populate.</div></div>
+  </article>
+  <article class="analysis-panel">
+    <div class="panel-title"><span>IDENTIFICATION</span><span>MODEL STATUS</span></div>
+    <div class="presence-big" id="presence">KNOWN</div>
+    <div class="progress"><div id="presenceBar"></div></div>
+    <div class="analysis-foot"><span>TCIR demo sample</span><strong id="presenceState">WAITING</strong></div>
+  </article>
+  <article class="analysis-panel">
+    <div class="panel-title"><span>REFERENCE</span><span>GROUND TRUTH</span></div>
+    <div class="ref-grid"><div><label>WIND</label><strong id="gtWind">—</strong></div><div><label>PRESSURE</label><strong id="gtPressure">—</strong></div><div><label>SIZE</label><strong id="gtSize">—</strong></div></div>
+  </article>
+</section>
 
-            <div class="hero-actions">
-                <button class="primary-btn" id="demoBtn">
-                    <span>▶</span> View Live Analysis
-                </button>
+<footer>
+  <span>VAYUNETRA / CYCLONE INTELLIGENCE CONSOLE</span>
+  <span id="footerModel">LOCAL NODE / READY</span>
+</footer>
+</main>
+</div>
 
-                <label class="secondary-btn upload-btn">
-                    <span>⇧</span> Load Satellite Data
-                    <input type="file" id="imageInput" accept="image/*" multiple hidden>
-                </label>
+<!-- WINDOWS -->
+<div class="window-layer" id="windowLayer">
 
-                <button class="secondary-btn" id="processBtn">
-                    <span>⌁</span> Analysis &amp; Reports
-                </button>
+<section class="floating-window" id="window-overview" data-window-panel>
+  <div class="window-head"><div><span class="window-kicker">SYSTEM</span><h3>Console Overview</h3></div><button class="close-window">×</button></div>
+  <div class="window-body overview-window">
+    <div class="overview-hero"><div class="eyebrow">VAYUNETRA / COMMAND VIEW</div><h2>Multi-source cyclone intelligence.</h2><p>TCIR supplies chronological intensity inference. INSAT supplies a separate real-data classification path. Synthetic models remain isolated as pipeline validation.</p></div>
+    <div class="quick-grid">
+      <button data-window="live"><b>01</b><span>Run TCIR temporal analysis</span>→</button>
+      <button data-window="satellite"><b>02</b><span>Inspect satellite sources</span>→</button>
+      <button data-window="forecast"><b>03</b><span>Track & motion nowcast</span>→</button>
+      <button data-window="reports"><b>04</b><span>Open evaluation evidence</span>→</button>
+    </div>
+  </div>
+</section>
 
-                <button class="secondary-btn" id="settingsBtn">
-                    <span>⚙</span> Settings
-                </button>
-            </div>
+<section class="floating-window wide" id="window-live" data-window-panel>
+  <div class="window-head"><div><span class="window-kicker">WINDOW 01 / TCIR</span><h3>Live Temporal Analysis</h3></div><button class="close-window">×</button></div>
+  <div class="window-body two-col">
+    <div>
+      <div class="big-source">TCIR / 4-FRAME SEQUENCE</div>
+      <div class="frame-grid" id="frameGrid"></div>
+      <div class="sequence-meta" id="sequenceMeta">No sequence loaded.</div>
+    </div>
+    <div class="result-stack">
+      <div class="result-card"><label>WIND</label><strong id="liveWind">—</strong><small>maximum sustained wind</small></div>
+      <div class="result-card"><label>PRESSURE</label><strong id="livePressure">—</strong><small>central pressure estimate</small></div>
+      <div class="result-card"><label>SIZE</label><strong id="liveSize">—</strong><small>nmi</small></div>
+      <div class="result-card"><label>CATEGORY</label><strong id="liveCategory">—</strong><small>derived from predicted wind</small></div>
+      <button class="primary-btn full" id="rerunTcir">↻ RERUN TCIR</button>
+    </div>
+  </div>
+</section>
 
-            <div class="hero-status" id="statusText">Initializing local inference node…</div>
-        </div>
+<section class="floating-window wide" id="window-forecast" data-window-panel>
+  <div class="window-head"><div><span class="window-kicker">WINDOW 03 / TRACK</span><h3>Cyclone Track & Motion</h3></div><button class="close-window">×</button></div>
+  <div class="window-body track-window">
+    <div class="track-map-wrap">
+      <div class="map-live-badge"><span class="map-live-dot"></span> LIVE GEO-RENDER</div>
+      <canvas id="trackCanvas" width="820" height="430" aria-label="Schematic cyclone track fallback"></canvas>
+      <div class="map-render-status" id="mapRenderStatus">INITIALIZING GEOSPATIAL LAYER…</div>
+      <div class="map-legend"><span><i class="obs-dot"></i> OBSERVED</span><span><i class="proj-dot"></i> MOTION PROJECTION</span></div>
+    </div>
+    <div class="track-side">
+      <div class="result-card"><label>TRACK STATUS</label><strong id="trackStatus">LOADING</strong><small>Based on TCIR manifest coordinates when available.</small></div>
+      <div class="result-card"><label>CURRENT POSITION</label><strong id="trackPosition">—</strong><small>latest observed coordinate</small></div>
+      <div class="result-card"><label>MOTION</label><strong id="trackDirection">—</strong><small>heading / bearing</small></div>
+      <div class="result-card"><label>SPEED</label><strong id="trackSpeed">—</strong><small>estimated displacement rate</small></div>
+      <div class="projection-list"><div class="panel-title"><span>SHORT-HORIZON PROJECTION</span><span>BASELINE</span></div><div id="projectionRows" class="empty-note">Projection points will appear when two observed positions are available.</div></div>
+    </div>
+    <div class="scope-note" id="trackProjectionNote">Observed track and future motion projection are separated. The current TCIR neural network predicts intensity, pressure and size; it does not predict latitude/longitude.</div>
+  </div>
+</section>
 
-        <div class="hero-visual">
-            <div class="map-grid"></div>
-            <div class="india-outline"></div>
-            <div class="cyclone-ring ring-1"></div>
-            <div class="cyclone-ring ring-2"></div>
-            <div class="cyclone-ring ring-3"></div>
-            <div class="cyclone-eye"></div>
-            <div class="lat-line lat-1"></div>
-            <div class="lat-line lat-2"></div>
-            <div class="lon-line lon-1"></div>
-            <div class="lon-line lon-2"></div>
-            <div class="map-label label-india">INDIAN OCEAN</div>
-            <div class="map-label label-system">SATELLITE TRACK</div>
-        </div>
-    </section>
+<section class="floating-window wide" id="window-satellite" data-window-panel>
+  <div class="window-head"><div><span class="window-kicker">WINDOW 02 / SOURCES</span><h3>Satellite Intelligence</h3></div><button class="close-window">×</button></div>
+  <div class="window-body">
+    <div class="source-tabs"><button class="source-tab active" data-source-tab="insat">INSAT</button><button class="source-tab" data-source-tab="tcir">TCIR</button><button class="source-tab" data-source-tab="synthetic">SYNTHETIC</button></div>
+    <div id="insatSourcePanel" class="source-panel">
+      <div class="source-header"><div><span class="window-kicker">INSAT-3DR / 3DS · LIVE</span><h4>Operational satellite observation</h4></div><button class="secondary-btn" id="runInsatWindow">LOAD INSAT</button></div>
+      <div class="insat-live-wrap"><div class="insat-local-grid"><div><label>TIR-1</label><img id="insatTirPreview" alt="INSAT TIR-1 local processed sample"></div><div><label>WATER VAPOUR</label><img id="insatWvPreview" alt="INSAT water vapour local processed sample"></div></div></div>
+      <div class="source-result-grid"><div><label>SOURCE</label><strong id="insatCategory">INSAT-3DR/3DS</strong></div><div><label>PRODUCT</label><strong id="insatWind">IMG TIR1</strong></div><div><label>STATUS</label><strong id="insatModel">LIVE</strong></div></div>
+      <p class="warning-note" id="insatNote">Local INSAT-3DR/3DS processed TIR-1 + water-vapour arrays are rendered directly from the project dataset. MOSDAC is retained as the documented source; no external iframe is used.</p>
+    </div>
+    <div id="tcirSourcePanel" class="source-panel hidden">
+      <div class="source-header"><div><span class="window-kicker">TCIR / HDF5</span><h4>Chronological satellite frames</h4></div><span class="badge">IR + PMW</span></div>
+      <div class="channel-grid"><div><label>IR</label><canvas class="channel-canvas" id="irCanvas" width="160" height="160"></canvas></div><div><label>PMW</label><canvas class="channel-canvas" id="pmwCanvas" width="160" height="160"></canvas></div><div><label>VIS</label><canvas class="channel-canvas" id="visCanvas" width="160" height="160"></canvas></div><div><label>WV</label><canvas class="channel-canvas" id="wvCanvas" width="160" height="160"></canvas></div></div>
+    </div>
+    <div id="syntheticSourcePanel" class="source-panel hidden">
+      <div class="source-header"><div><span class="window-kicker">VALIDATION PATH</span><h4>Synthetic pipeline</h4></div><button class="secondary-btn" id="runSynthetic">RUN VALIDATION</button></div>
+      <div class="source-result-grid"><div><label>PRESENCE</label><strong id="syntheticPresence">—</strong></div><div><label>TREND</label><strong id="syntheticTrend">—</strong></div><div><label>TRACK DELTA</label><strong id="syntheticTrack">—</strong></div><div><label>CATEGORY</label><strong id="syntheticCategory">—</strong></div></div>
+      <p class="warning-note">Synthetic data is for pipeline validation only. It is not evidence of real-world cyclone performance.</p>
+    </div>
+  </div>
+</section>
 
-    <!-- FOUR PRIMARY CARDS -->
-    <section class="dashboard-grid">
+<section class="floating-window" id="window-comparison" data-window-panel>
+  <div class="window-head"><div><span class="window-kicker">WINDOW 04 / MODELS</span><h3>Intensity Comparison</h3></div><button class="close-window">×</button></div>
+  <div class="window-body">
+    <div class="compare-grid">
+      <div class="compare-card"><span>TCIR TEMPORAL</span><strong id="compareTemporal">—</strong><small>4 frames / 9h context</small></div>
+      <div class="compare-card"><span>TCIR SINGLE FRAME</span><strong id="compareSingle">—</strong><small>latest frame only</small></div>
+      <div class="compare-card"><span>INSAT CLASSIFIER</span><strong id="compareInsat">—</strong><small>TIR1 + WV</small></div>
+    </div>
+    <div class="comparison-note">Models are trained on different datasets and tasks. This is a comparison view, not a claim that one source is universally superior.</div>
+    <button class="primary-btn full" id="runComparison">RUN COMPARISON</button>
+  </div>
+</section>
 
-        <!-- ACTIVE CYCLONES -->
-        <article class="dashboard-card card-cyan">
-            <div class="card-head">
-                <span>01 / ACTIVE CYCLONES</span>
-                <span class="card-icon">◉</span>
-            </div>
+<section class="floating-window wide" id="window-sources" data-window-panel>
+  <div class="window-head"><div><span class="window-kicker">WINDOW 04 / DATA</span><h3>Data Source Matrix</h3></div><button class="close-window">×</button></div>
+  <div class="window-body">
+    <div class="source-matrix" id="sourceMatrix"><div class="empty-note">Loading source status…</div></div>
+    <div class="source-footnote">INSAT live observation: MOSDAC / INSAT-3DR/3DS. Local AI inference is separate and is only reported when paired TIR1 + WV arrays are available.</div>
+  </div>
+</section>
 
-            <div class="card-number" id="activeCyclones">01</div>
-            <div class="card-caption">MONITORED</div>
-
-            <div class="cyclone-list">
-                <div class="cyclone-row">
-                    <span class="severity-dot severe"></span>
-                    <div class="cyclone-name">
-                        <strong id="cycloneName">CYCLONE A</strong>
-                        <small id="cycloneCategory">Awaiting analysis</small>
-                    </div>
-                    <div class="cyclone-meta">
-                        <span>Wind: <b id="cycloneWind">—</b></span>
-                        <span>Lat: <b id="cycloneLat">—</b></span>
-                    </div>
-                    <span class="row-arrow">→</span>
-                </div>
-            </div>
-        </article>
-
-        <!-- SATELLITE OBSERVATION -->
-        <article class="dashboard-card card-blue">
-            <div class="card-head">
-                <span>02 / SATELLITE OBSERVATION</span>
-                <span class="card-icon">☁</span>
-            </div>
-
-            <div class="observation-layout">
-                <div class="mini-satellite">
-                    <canvas id="frameCanvas" width="128" height="128"></canvas>
-                </div>
-
-                <div class="observation-info">
-                    <div class="metric-label">SOURCE</div>
-                    <div class="metric-value" id="frameSource">WAITING</div>
-
-                    <div class="metric-label">CHANNELS</div>
-                    <div class="metric-value">IR + PMW</div>
-
-                    <div class="metric-label">FRAMES</div>
-                    <div class="metric-value" id="framesReceived">—</div>
-                </div>
-            </div>
-
-            <div class="legend" id="legendBar"></div>
-            <div class="legend-labels">
-                <span>WARM</span>
-                <span>COLD / DEEP CONVECTION</span>
-            </div>
-        </article>
-
-        <!-- TRACK -->
-        <article class="dashboard-card card-violet">
-            <div class="card-head">
-                <span>03 / TRACK &amp; NOWCAST</span>
-                <span class="card-icon">⌁</span>
-            </div>
-
-            <div class="track-visual">
-                <div class="track-line"></div>
-                <div class="track-point point-1"></div>
-                <div class="track-point point-2"></div>
-                <div class="track-point point-3"></div>
-                <div class="track-point point-current"></div>
-            </div>
-
-            <div class="track-status">
-                <div>
-                    <div class="metric-label">CURRENT TREND</div>
-                    <div class="big-track-value" id="predTrend">—</div>
-                </div>
-
-                <div class="track-arrow-large" id="trackArrow">↗</div>
-            </div>
-
-            <div class="track-delta">
-                <span>Next-step displacement</span>
-                <strong id="trackDelta">—</strong>
-            </div>
-
-            <div class="scope-note">
-                Short-horizon trend nowcasting only.
-            </div>
-        </article>
-
-        <!-- INTENSITY -->
-        <article class="dashboard-card card-amber">
-            <div class="card-head">
-                <span>04 / STORM INTENSITY</span>
-                <span class="card-icon">≋</span>
-            </div>
-
-            <div class="intensity-layout">
-                <div class="gauge">
-                    <div class="gauge-inner">
-                        <span id="intensityValue">—</span>
-                        <small>MODEL OUTPUT</small>
-                    </div>
-                </div>
-
-                <div class="intensity-info">
-                    <div class="metric-label">CATEGORY</div>
-                    <div class="intensity-category" id="predCategory">—</div>
-
-                    <div class="metric-label">PRESSURE</div>
-                    <div class="metric-value" id="pressureValue">— <span>hPa</span></div>
-
-                    <div class="metric-label">SIZE</div>
-                    <div class="metric-value" id="sizeValue">— <span>nmi</span></div>
-                </div>
-            </div>
-
-            <div class="intensity-note" id="intensityNote">
-                Waiting for model inference.
-            </div>
-        </article>
-
-    </section>
-
-    <!-- ANALYSIS SECTION -->
-    <section class="analysis-section">
-
-        <div class="section-title">
-            <div>
-                <div class="eyebrow">MODEL ANALYSIS</div>
-                <h2>Observation Intelligence</h2>
-            </div>
-
-            <div class="sequence-badge">
-                <span class="status-dot"></span>
-                <span id="sequenceTag">READY</span>
-            </div>
-        </div>
-
-        <div class="analysis-grid">
-
-            <article class="analysis-card">
-                <div class="analysis-head">
-                    <span>CYCLONE IDENTIFICATION</span>
-                    <span>01</span>
-                </div>
-
-                <div class="presence-readout">
-                    <strong id="presence">—</strong>
-                    <span>TCIR DEMO STATUS</span>
-                </div>
-
-                <div class="progress-track">
-                    <div class="progress-fill" id="presenceBar"></div>
-                </div>
-
-                <div class="analysis-foot">
-                    <span>MODEL STATUS</span>
-                    <strong id="presenceState">WAITING</strong>
-                </div>
-            </article>
-
-            <article class="analysis-card">
-                <div class="analysis-head">
-                    <span>INTENSITY CLASSIFICATION</span>
-                    <span>02</span>
-                </div>
-
-                <div class="category-readout" id="predCategorySecondary">—</div>
-
-                <div class="probability-list" id="categoryBars"></div>
-            </article>
-
-            <article class="analysis-card">
-                <div class="analysis-head">
-                    <span>TEMPORAL ANALYSIS</span>
-                    <span>03</span>
-                </div>
-
-                <div class="temporal-meta">
-                    <div>
-                        <span>MODE</span>
-                        <strong id="temporalMode">—</strong>
-                    </div>
-                    <div>
-                        <span>FRAMES</span>
-                        <strong id="framesReceivedSecondary">—</strong>
-                    </div>
-                </div>
-
-                <div class="probability-list" id="trendBars"></div>
-            </article>
-
-        </div>
-
-        <div class="ground-truth">
-            <div class="gt-title">REFERENCE / DEMO LABEL</div>
-
-            <div class="gt-values">
-                <div>
-                    <span>CATEGORY</span>
-                    <strong id="gtCategory">—</strong>
-                </div>
-
-                <div>
-                    <span>TREND</span>
-                    <strong id="gtTrend">—</strong>
-                </div>
-
-                <div>
-                    <span>MODE</span>
-                    <strong id="temporalModeBottom">—</strong>
-                </div>
-            </div>
-        </div>
-
-    </section>
-
-    <!-- FOOTER -->
-    <footer>
-        <div class="footer-left">
-            <span class="footer-mark">—</span>
-            <span>Safer Tomorrow, With Better Insights.</span>
-        </div>
-
-        <div class="footer-right">
-            <strong>VAYUNETRA</strong>
-            <span>—</span>
-            <span>CYCLONE INTELLIGENCE CONSOLE</span>
-        </div>
-    </footer>
-
+<section class="floating-window wide" id="window-reports" data-window-panel>
+  <div class="window-head"><div><span class="window-kicker">WINDOW 05 / EVIDENCE</span><h3>Evaluation &amp; Reports</h3></div><button class="close-window">×</button></div>
+  <div class="window-body">
+    <div class="report-summary" id="reportSummary"><div class="empty-note">Loading evaluation files…</div></div>
+    <div class="report-table-wrap"><table><thead><tr><th>TARGET</th><th>MAE</th><th>RMSE</th><th>R²</th><th>UNIT</th></tr></thead><tbody id="reportRows"></tbody></table></div>
+    <div class="source-footnote">Metrics are shown only when the corresponding evaluation CSV exists on the backend.</div>
+  </div>
+</section>
 </div>
 
 <script src="app.js"></script>
-
-
-
 </body>
 </html>
