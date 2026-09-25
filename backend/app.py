@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import torch
 from PIL import Image
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -828,6 +828,120 @@ async def predict_insat(
         return result
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
+
+
+class SyntheticSequenceIn(BaseModel):
+    frames: list
+
+
+@app.post("/predict")
+def predict_synthetic(payload: SyntheticSequenceIn):
+    """Compatibility endpoint for the frontend synthetic-validation panel.
+
+    This route intentionally serves only the legacy synthetic pipeline and is
+    explicitly marked as validation-only. It is not real-world cyclone evidence.
+    """
+    if classifier is None or predictor is None:
+        return {
+            "status": "error",
+            "error": "Synthetic validation models are not loaded.",
+        }
+    try:
+        frames = np.asarray(payload.frames, dtype=np.float32)
+        if frames.ndim != 3:
+            raise ValueError(
+                f"Expected frames with shape [T,H,W], got {tuple(frames.shape)}"
+            )
+        if frames.shape[0] < 1:
+            raise ValueError("At least one frame is required.")
+        if frames.shape[1:] != (64, 64):
+            raise ValueError(
+                f"Synthetic model expects 64x64 frames, got {tuple(frames.shape[1:])}"
+            )
+        result = _run_synthetic(frames)
+        result["mode"] = "trained_model"
+        result["source"] = "synthetic_validation"
+        result["warning"] = (
+            "Synthetic data is for pipeline validation only; it is not evidence "
+            "of real-world cyclone performance."
+        )
+        return result
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
+
+
+def _preview_png(array: np.ndarray, thermal: bool = True) -> bytes:
+    """Render a 2-D processed INSAT array as a small PNG for the dashboard."""
+    arr = np.asarray(array, dtype=np.float32)
+    if arr.ndim != 2:
+        raise ValueError(f"Preview expects a 2-D array, got {arr.shape}")
+    finite = np.isfinite(arr)
+    if not finite.any():
+        raise ValueError("INSAT preview array contains no finite values")
+    vals = arr[finite]
+    lo, hi = np.percentile(vals, [2, 98])
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        lo, hi = float(vals.min()), float(vals.max())
+    if hi <= lo:
+        hi = lo + 1.0
+    n = np.clip((np.nan_to_num(arr, nan=lo) - lo) / (hi - lo), 0, 1)
+    if thermal:
+        # Match the dashboard's familiar thermal ramp without requiring a plotting library.
+        stops = np.array([
+            [8, 8, 12], [80, 80, 80], [220, 220, 220],
+            [255, 255, 0], [255, 140, 0], [255, 0, 0], [160, 0, 200]
+        ], dtype=np.float32)
+        pos = n * (len(stops) - 1)
+        i0 = np.floor(pos).astype(np.int32).clip(0, len(stops) - 2)
+        f = pos - i0
+        rgb = stops[i0] * (1 - f[..., None]) + stops[i0 + 1] * f[..., None]
+        rgb = np.clip(rgb, 0, 255).astype(np.uint8)
+    else:
+        gray = np.clip(n * 255, 0, 255).astype(np.uint8)
+        rgb = np.repeat(gray[..., None], 3, axis=2)
+    img = Image.fromarray(rgb, mode="RGB").resize((512, 512), Image.Resampling.BILINEAR)
+    out = io.BytesIO()
+    img.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+@app.get("/insat_preview/{channel}")
+def insat_preview(channel: str):
+    """Serve dashboard previews for the first local processed INSAT TIR1/WV pair."""
+    if channel not in {"tir1", "wv"}:
+        return {"status": "error", "error": "Channel must be 'tir1' or 'wv'."}
+    tir_path, wv_path = _find_insat_sample()
+    path = tir_path if channel == "tir1" else wv_path
+    if path is None:
+        return {"status": "error", "error": "No processed INSAT TIR1/WV sample found."}
+    try:
+        payload = _preview_png(np.load(path), thermal=True)
+        return Response(content=payload, media_type="image/png", headers={"Cache-Control": "no-store"})
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
+
+
+@app.get("/debug_paths")
+def debug_paths():
+    """Non-secret local diagnostics used by the frontend when a data path fails."""
+    tir_path, wv_path = _find_insat_sample()
+    return {
+        "status": "success",
+        "tcir_h5": {"exists": TCIR_H5.exists(), "path": str(TCIR_H5)},
+        "tcir_manifest": {"exists": TCIR_TEST.exists(), "path": str(TCIR_TEST)},
+        "insat_sample": {
+            "tir1": str(tir_path) if tir_path else None,
+            "wv": str(wv_path) if wv_path else None,
+        },
+        "models": {
+            "synthetic": classifier is not None and predictor is not None,
+            "tcir_temporal": tcir_temporal_model is not None,
+            "tcir_intensity": tcir_intensity_model is not None,
+            "insat": insat_model is not None,
+            "track_gru_multi": track_multi_model is not None,
+        },
+        "model_errors": model_errors,
+    }
 
 
 @app.post("/predict_image")
