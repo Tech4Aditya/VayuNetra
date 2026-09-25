@@ -1,0 +1,1 @@
+FIX: The finalization backend imports models.insat_complete, so the INSAT V2 model definition must live under backend/models/. Copy this file to backend/models/insat_complete.py. No checkpoint changes are required.

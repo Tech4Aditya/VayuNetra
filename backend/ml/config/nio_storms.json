@@ -1,0 +1,9 @@
+{
+  "target_storms": [
+    "FANI", "TAUKTAE", "AMPHAN", "YAAS", "ASANI",
+    "NISARGA", "BULBUL", "GULAAB", "BIPARJOY", "MICHAUNG"
+  ],
+  "insat_dataset_id": "3DIMG_L1C_ASIA_MER",
+  "bounding_box": "70.0,8.0,100.0,30.0",
+  "date_padding_days": 1
+}

@@ -1,0 +1,21 @@
+{
+  "user_credentials": {
+    "username": "${MOSDAC_USERNAME}",
+    "password": "${MOSDAC_PASSWORD}"
+  },
+  "search_parameters": {
+    "datasetId": "3DIMG_L1C_ASIA_MER",
+    "startTime": "2021-05-13",
+    "endTime": "2021-05-20",
+    "count": "100",
+    "boundingBox": "70.0,8.0,100.0,30.0",
+    "gId": ""
+  },
+  "download_settings": {
+    "download_path": "C:\\Users\\techa\\Documents\\Tech4Aditya\\SIH\\cyclone-sih\\backend\\data\\raw\\mosdac\\tauktae",
+    "organize_by_date": true,
+    "skip_user_prompt": true,
+    "generate_error_log": true,
+    "error_log_path": "C:\\Users\\techa\\Documents\\Tech4Aditya\\SIH\\cyclone-sih\\backend\\data\\mosdac_jobs\\TAUKTAE\\error.log"
+  }
+}

@@ -35,7 +35,8 @@ TCIR_TEST = DATA_DIR / "labels" / "tcir_temporal_test.csv"
 TCIR_TEMPORAL_CKPT = CKPT_DIR / "tcir_temporal_best.pt"
 TCIR_INTENSITY_CKPT = CKPT_DIR / "tcir_intensity_best.pt"
 
-INSAT_CKPT = CKPT_DIR / "classifier_insat.pt"
+INSAT_V2_CKPT = CKPT_DIR / "insat_v2_best.pt"
+INSAT_CKPT = CKPT_DIR / "classifier_insat.pt"  # legacy fallback
 INSAT_PROCESSED = DATA_DIR / "processed"
 
 SYNTH_CLASSIFIER_CKPT = CKPT_DIR / "classifier.pt"
@@ -50,6 +51,7 @@ from models.classifier import CycloneCNN
 from models.predictor import CycloneTrendLSTM
 from models.tcir_temporal import TCIRTemporalModel
 from models.tcir_intensity import TCIRIntensityCNN
+from models.insat_complete import INSATMultiTask
 from data.generate_synthetic import make_sequence, CATEGORIES
 from models.track_gru_multi import TrackGRUMulti
 
@@ -134,15 +136,28 @@ def _safe_load_models():
         tcir_intensity_model = None
         tcir_intensity_checkpoint = {}
 
-    # Real INSAT classifier.
+    # Real INSAT classifier. Prefer the corrected V2 checkpoint with
+    # training-set normalization and weighted classification loss.
     try:
-        insat_checkpoint = _load_state(INSAT_CKPT)
+        insat_path = INSAT_V2_CKPT if INSAT_V2_CKPT.exists() else INSAT_CKPT
+        insat_checkpoint = _load_state(insat_path)
         categories = insat_checkpoint["category_names"]
-        insat_model = CycloneCNN(
-            num_categories=len(categories),
-            in_channels=int(insat_checkpoint.get("in_channels", 2)),
-        )
-        insat_model.load_state_dict(insat_checkpoint["model_state_dict"], strict=True)
+        if insat_path == INSAT_V2_CKPT:
+            insat_model = INSATMultiTask(
+                in_channels=int(insat_checkpoint.get("in_channels", 2)),
+                n_classes=len(categories),
+                predict_size=bool(insat_checkpoint.get("predict_size", False)),
+            )
+            insat_model.load_state_dict(insat_checkpoint["model_state_dict"], strict=True)
+            insat_checkpoint["model_version"] = "V2"
+        else:
+            insat_model = CycloneCNN(
+                num_categories=len(categories),
+                in_channels=int(insat_checkpoint.get("in_channels", 2)),
+            )
+            insat_model.load_state_dict(insat_checkpoint["model_state_dict"], strict=True)
+            insat_checkpoint["model_version"] = "legacy"
+        insat_checkpoint["checkpoint_path"] = str(insat_path)
         insat_model.eval()
     except Exception as exc:
         model_errors["insat"] = str(exc)
@@ -244,50 +259,68 @@ def _insat_predict(tir: np.ndarray, wv: np.ndarray):
     if tir.shape != (128, 128) or wv.shape != (128, 128):
         raise ValueError(f"INSAT expects two 128x128 arrays; got {tir.shape} and {wv.shape}")
 
-    tir_mean = float(insat_checkpoint["tir_mean"])
-    tir_std = float(insat_checkpoint["tir_std"])
-    wv_mean = float(insat_checkpoint["wv_mean"])
-    wv_std = float(insat_checkpoint["wv_std"])
-    wind_min = float(insat_checkpoint.get("wind_min", 20.0))
-    wind_max = float(insat_checkpoint.get("wind_max", 130.0))
-
-    x = np.stack(
-        [(tir - tir_mean) / (tir_std + 1e-8),
-         (wv - wv_mean) / (wv_std + 1e-8)],
-        axis=0,
-    )
-    x = torch.from_numpy(x).unsqueeze(0).float()
-
-    with torch.no_grad():
-        presence_logit, category_logits, intensity = insat_model(x)
-
-    probs = torch.softmax(category_logits, dim=1)[0].cpu().numpy()
+    version = insat_checkpoint.get("model_version", "legacy")
     category_names = insat_checkpoint["category_names"]
+
+    if version == "V2":
+        st = insat_checkpoint["stats"]
+        x = np.stack([
+            (tir - float(st["tir_mean"])) / float(st["tir_std"]),
+            (wv - float(st["wv_mean"])) / float(st["wv_std"]),
+        ], axis=0)
+        x = torch.from_numpy(x).unsqueeze(0).float()
+        with torch.no_grad():
+            out = insat_model(x)
+        probs = torch.softmax(out["category"], dim=1)[0].cpu().numpy()
+        category_index = int(np.argmax(probs))
+        wind = float(out["wind"].item()) * float(st["wind_std"]) + float(st["wind_mean"])
+        pressure = float(out["pressure"].item()) * float(st["pressure_std"]) + float(st["pressure_mean"])
+        result = {
+            "status": "success",
+            "source": "INSAT / processed real sample",
+            "model": {
+                "name": "INSAT Real-Data Multitask V2",
+                "version": "V2",
+                "checkpoint_epoch": insat_checkpoint.get("epoch"),
+                "checkpoint": "insat_v2_best.pt",
+            },
+            "classification": {
+                "predicted_category": category_names[category_index],
+                "category_probabilities": {name: round(float(p), 4) for name, p in zip(category_names, probs)},
+            },
+            "intensity": {
+                "wind_kt": round(float(wind), 2),
+                "pressure_hpa": round(float(pressure), 2),
+            },
+            "presence": None,
+            "note": (
+                "V2 uses training-set image normalization and normalized multitask regression. "
+                "The dataset is cyclone-positive, so the presence head is not used as a no-cyclone detector."
+            ),
+        }
+        if "size" in out and "size_mean" in st:
+            size = float(out["size"].item()) * float(st["size_std"]) + float(st["size_mean"])
+            result["intensity"]["size_nmi"] = round(float(size), 2)
+        return result
+
+    # Legacy checkpoint fallback.
+    tir_mean = float(insat_checkpoint["tir_mean"]); tir_std = float(insat_checkpoint["tir_std"])
+    wv_mean = float(insat_checkpoint["wv_mean"]); wv_std = float(insat_checkpoint["wv_std"])
+    wind_min = float(insat_checkpoint.get("wind_min", 20.0)); wind_max = float(insat_checkpoint.get("wind_max", 130.0))
+    x = np.stack([(tir - tir_mean) / (tir_std + 1e-8), (wv - wv_mean) / (wv_std + 1e-8)], axis=0)
+    x = torch.from_numpy(x).unsqueeze(0).float()
+    with torch.no_grad():
+        _, category_logits, intensity = insat_model(x)
+    probs = torch.softmax(category_logits, dim=1)[0].cpu().numpy()
     category_index = int(np.argmax(probs))
     wind_norm = float(intensity.squeeze().item())
     wind = np.clip(wind_norm, 0.0, 1.0) * (wind_max - wind_min) + wind_min
-
     return {
-        "status": "success",
-        "source": "INSAT / processed real sample",
-        "model": {
-            "name": "INSAT Real-Data Cyclone Classifier",
-            "checkpoint_epoch": insat_checkpoint.get("epoch"),
-        },
-        "classification": {
-            "predicted_category": category_names[category_index],
-            "category_probabilities": {
-                name: round(float(p), 4) for name, p in zip(category_names, probs)
-            },
-        },
-        "intensity": {
-            "wind_kt": round(float(wind), 2),
-        },
-        "presence": None,
-        "note": (
-            "The current INSAT training pipeline uses cyclone-positive samples; "
-            "the presence head is therefore not used as a no-cyclone detector."
-        ),
+        "status": "success", "source": "INSAT / processed real sample",
+        "model": {"name": "INSAT Real-Data Classifier", "version": "legacy", "checkpoint": "classifier_insat.pt", "checkpoint_epoch": insat_checkpoint.get("epoch")},
+        "classification": {"predicted_category": category_names[category_index], "category_probabilities": {name: round(float(p), 4) for name, p in zip(category_names, probs)}},
+        "intensity": {"wind_kt": round(float(wind), 2)}, "presence": None,
+        "note": "Legacy fallback checkpoint. V2 is preferred when insat_v2_best.pt exists.",
     }
 
 
@@ -306,6 +339,7 @@ def health():
             "tcir_temporal": tcir_temporal_model is not None,
             "tcir_intensity": tcir_intensity_model is not None,
             "insat": insat_model is not None,
+            "track_gru_multi": track_multi_model is not None,
         },
         "errors": model_errors,
     }
@@ -325,6 +359,7 @@ def data_sources():
         "INSAT": {
             "status": "READY" if insat_model is not None else "MODEL MISSING",
             "classifier_model": insat_model is not None,
+            "model_version": insat_checkpoint.get("model_version"),
             "real_sample": tir_path is not None and wv_path is not None,
             "sample": str(tir_path.parent.name) if tir_path else None,
         },
@@ -354,6 +389,31 @@ def metrics():
     return out
 
 
+@app.get("/evaluation_summary")
+def evaluation_summary():
+    """Expose frozen, locally generated evaluation artifacts without inventing metrics."""
+    files = {
+        "tcir": EVAL_DIR / "overall_metrics.csv",
+        "insat": DATA_DIR / "processed" / "insat_v2_evaluation.json",
+        "track": DATA_DIR / "processed" / "track_multi_evaluation.json",
+        "insat_baseline": DATA_DIR / "processed" / "insat_baseline_evaluation.json",
+        "insat_failures": DATA_DIR / "processed" / "insat_failure_analysis.json",
+    }
+    out = {"status": "success", "artifacts": {}}
+    for name, path in files.items():
+        if path.exists():
+            try:
+                if path.suffix.lower() == ".json":
+                    out["artifacts"][name] = __import__("json").loads(path.read_text())
+                else:
+                    out["artifacts"][name] = pd.read_csv(path).replace({np.nan: None}).to_dict("records")
+            except Exception as exc:
+                out["artifacts"][name] = {"error": str(exc)}
+        else:
+            out["artifacts"][name] = {"status": "missing", "path": str(path)}
+    return out
+
+
 @app.get("/demo_sequence")
 def demo_sequence():
     if classifier is None or predictor is None:
@@ -377,7 +437,6 @@ def tcir_demo():
     if df.empty:
         return {"status": "error", "error": "TCIR temporal test manifest is empty."}
     row = df.iloc[0]
-    track_storm, track_resolution = _resolve_demo_track_storm(row)
     frame_cols = ["frame_0_h5_index", "frame_1_h5_index", "frame_2_h5_index", "frame_3_h5_index"]
     indices = [int(row[c]) for c in frame_cols]
     with h5py.File(TCIR_H5, "r") as h5:
@@ -390,13 +449,9 @@ def tcir_demo():
             "file": TCIR_H5.name,
             "split": "test",
             "cyclone_id": str(row.get("cyclone_id", "TCIR TEST SAMPLE")),
-            "track_storm": track_storm,
-            "track_resolution": track_resolution,
             "target_timestamp": str(row.get("target_timestamp", "")),
         },
         "cyclone_id": str(row.get("cyclone_id", "TCIR TEST SAMPLE")),
-        "track_storm": track_storm,
-        "track_resolution": track_resolution,
         "target_timestamp": str(row.get("target_timestamp", "")),
         "temporal_context": {
             "frames": 4,
@@ -426,70 +481,6 @@ def _find_col(df, candidates):
         if any(c in lc for c in candidates):
             return col
     return None
-
-
-def _resolve_demo_track_storm(row):
-    """Map a TCIR dataset identifier to an available IMD best-track storm."""
-    files = sorted((DATA_DIR / "labels").glob("*_besttrack.csv"))
-    if not files:
-        return "AMPHAN", "no best-track files; using demo fallback"
-
-    # Direct storm/name fields, when present.
-    for col in ("storm_name", "storm", "storm_id", "name", "cyclone_name"):
-        if col in row.index and pd.notna(row[col]):
-            requested = str(row[col]).strip().upper()
-            for f in files:
-                if f.stem.replace("_besttrack", "").upper() == requested:
-                    return requested, "direct manifest storm-name match"
-
-    lower = {str(c).strip().lower(): c for c in row.index}
-    def rv(candidates):
-        for c in candidates:
-            if c in lower and pd.notna(row[lower[c]]):
-                return row[lower[c]]
-        for col in row.index:
-            lc = str(col).strip().lower()
-            if any(c in lc for c in candidates) and pd.notna(row[col]):
-                return row[col]
-        return None
-
-    try:
-        lat_v = rv(["target_latitude", "target_lat", "latitude", "lat"])
-        lon_v = rv(["target_longitude", "target_lon", "longitude", "lon"])
-        time_v = rv(["target_timestamp", "timestamp", "datetime", "date_time", "time"])
-        target_lat = float(lat_v) if lat_v is not None else None
-        target_lon = float(lon_v) if lon_v is not None else None
-        target_time = pd.to_datetime(time_v, utc=True, errors="coerce") if time_v is not None else pd.NaT
-    except Exception:
-        target_lat = target_lon = None
-        target_time = pd.NaT
-
-    if target_lat is not None and target_lon is not None and np.isfinite(target_lat) and np.isfinite(target_lon):
-        best = None
-        for f in files:
-            try:
-                d = pd.read_csv(f)
-                lat_col = _find_col(d, ["latitude", "lat", "lat_deg", "center_lat", "storm_lat"])
-                lon_col = _find_col(d, ["longitude", "lon", "long", "lon_deg", "center_lon", "storm_lon"])
-                time_col = _find_col(d, ["timestamp", "datetime", "date", "time", "valid_time", "observation_time"])
-                if lat_col is None or lon_col is None:
-                    continue
-                dlat = pd.to_numeric(d[lat_col], errors="coerce")
-                dlon = pd.to_numeric(d[lon_col], errors="coerce")
-                score = np.hypot(dlat - target_lat, (dlon - target_lon) * np.cos(np.deg2rad(target_lat)))
-                if time_col is not None and not pd.isna(target_time):
-                    dt = pd.to_datetime(d[time_col], utc=True, errors="coerce", format="mixed")
-                    score = score + 0.03 * ((dt - target_time).abs().dt.total_seconds() / 3600.0)
-                idx = score.idxmin()
-                val = float(score.loc[idx])
-                if best is None or val < best[0]:
-                    best = (val, f.stem.replace("_besttrack", "").upper())
-            except Exception:
-                continue
-        if best is not None and best[0] < 2.5:
-            return best[1], "nearest IMD best-track coordinate/time match"
-
-    return "AMPHAN", "TCIR identifier is not an IMD storm name; using deterministic demo fallback"
 
 
 def _extract_track_from_manifest(df, cyclone_id):
@@ -540,85 +531,32 @@ def _compass_direction(deg):
 
 
 def _project_motion(points, hours=(3, 6, 9)):
-    """Estimate recent motion from a short, chronologically ordered track window.
-
-    Uses up to the last five distinct positions and a least-squares trend in
-    latitude/longitude. This avoids a misleading 0°/cardinal bearing caused
-    by quantized best-track coordinates at a single 3-hour interval.
-    """
     if len(points) < 2:
         return [], {"available": False, "reason": "At least two observed positions are required for motion estimation."}
-
-    # Keep only valid, distinct geographic observations.
-    valid = []
-    seen_xy = set()
-    for p in points:
-        try:
-            lat = float(p["lat"]); lon = float(p["lon"])
-            t = pd.to_datetime(p["timestamp"], utc=True)
-            if not np.isfinite(lat) or not np.isfinite(lon) or pd.isna(t):
-                continue
-            key = (round(lat, 6), round(lon, 6))
-            if key in seen_xy:
-                continue
-            seen_xy.add(key)
-            valid.append((t, lat, lon, p))
-        except Exception:
-            continue
-
-    if len(valid) < 2:
-        return [], {"available": False, "reason": "Recent observed positions contain no measurable displacement."}
-
-    window = valid[-5:]
-    t0 = window[0][0]
-    elapsed = np.asarray([(x[0] - t0).total_seconds() / 3600.0 for x in window], dtype=np.float64)
-    lats = np.asarray([x[1] for x in window], dtype=np.float64)
-    lons = np.asarray([x[2] for x in window], dtype=np.float64)
-
-    if elapsed[-1] <= 0:
-        return [], {"available": False, "reason": "Observed timestamps are not strictly increasing."}
-
-    # Local longitude unwrap so a dateline crossing cannot create a huge jump.
-    unwrapped_lon = np.rad2deg(np.unwrap(np.deg2rad(lons)))
-    lat_rate, lat_intercept = np.polyfit(elapsed, lats, 1)
-    lon_rate, lon_intercept = np.polyfit(elapsed, unwrapped_lon, 1)
-
-    current = points[-1]
-    cur_lat = float(current["lat"]); cur_lon = float(current["lon"])
-    # Use the fitted rates (degrees/hour) for a stable recent motion estimate.
-    lat_rate = float(lat_rate); lon_rate = float(lon_rate)
-    lat_rad = np.deg2rad(cur_lat)
-    east_nm_h = lon_rate * np.cos(lat_rad) * 60.0
-    north_nm_h = lat_rate * 60.0
-    speed_kt = float(np.hypot(east_nm_h, north_nm_h))
-
-    if speed_kt < 0.05:
-        return [], {"available": False, "reason": "Recent observed positions contain insufficient measurable displacement."}
-
-    bearing = float((np.degrees(np.arctan2(east_nm_h, north_nm_h)) + 360.0) % 360.0)
-    direction = _compass_direction(bearing)
-
-    projections = []
-    for h in hours:
-        projections.append({
-            "hours_ahead": int(h),
-            "lat": round(cur_lat + lat_rate * h, 5),
-            "lon": round(((cur_lon + lon_rate * h + 180.0) % 360.0) - 180.0, 5),
-        })
-
+    a, b = points[-2], points[-1]
+    try:
+        ta = pd.to_datetime(a["timestamp"]); tb = pd.to_datetime(b["timestamp"])
+        dt_h = max((tb - ta).total_seconds() / 3600.0, 1e-6)
+    except Exception:
+        dt_h = 3.0
+    dlat = b["lat"] - a["lat"]; dlon = b["lon"] - a["lon"]
+    lat_rad = np.deg2rad(b["lat"])
+    east_nm = dlon * np.cos(lat_rad) * 60.0
+    north_nm = dlat * 60.0
+    speed_kt = float(np.hypot(east_nm, north_nm) / dt_h)
+    bearing = (np.degrees(np.arctan2(east_nm, north_nm)) + 360.0) % 360.0
+    projections = [
+        {"hours_ahead": h, "lat": round(float(b["lat"] + dlat / dt_h * h), 5),
+         "lon": round(float(b["lon"] + dlon / dt_h * h), 5)}
+        for h in hours
+    ]
     return projections, {
-        "available": True,
-        "speed_kt": round(speed_kt, 2),
-        "bearing_deg": round(bearing, 1),
-        "direction": direction,
-        "method": "linear trend over latest distinct observed positions",
-        "observations_used": len(window),
-        "based_on_hours": round(float(elapsed[-1]), 2),
-        "from_timestamp": str(window[0][0]),
-        "to_timestamp": str(window[-1][0]),
-        "lat_rate_deg_h": round(lat_rate, 5),
-        "lon_rate_deg_h": round(lon_rate, 5),
+        "available": True, "speed_kt": round(speed_kt, 2),
+        "bearing_deg": round(float(bearing), 1),
+        "direction": _compass_direction(bearing),
+        "based_on_hours": round(dt_h, 2)
     }
+
 
 def _prepare_track_features(points, n=5):
     """Build the exact 5-feature history used by TrackGRUMulti.
@@ -771,7 +709,6 @@ def track(storm: str = "AMPHAN"):
         "source": "IMD best-track history + learned multi-horizon Track GRU",
         "cyclone_id": cyclone_id,
         "current": points[-1],
-        "motion_basis": motion.get("method", "recent observed positions"),
         "history": points,
         "projection": learned_projection,
         "motion_baseline": motion_projection,
