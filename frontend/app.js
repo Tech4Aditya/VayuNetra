@@ -11,8 +11,8 @@ const state = {
 };
 
 function text(id, value) {
-  const el = $(id);
-  if (el) el.textContent = value == null || value === "" ? "—" : String(value);
+  const v = value == null || value === "" ? "—" : String(value);
+  document.querySelectorAll(`[id="${id}"]`).forEach(el => { el.textContent = v; });
 }
 function status(message, good=false) {
   text("statusText", message);
@@ -144,65 +144,71 @@ function setGauge(wind){
   gauge.style.background=`conic-gradient(var(--amber) ${pct*3.6}deg,#e4ebea 0deg)`;
 }
 
+let trackMap = null;
+let trackLayers = [];
+
+function fmtCoord(value, positive, negative) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return `${Math.abs(n).toFixed(2)}° ${n >= 0 ? positive : negative}`;
+}
+
+function clearTrackLayers() {
+  if (!trackMap) return;
+  trackLayers.forEach(layer => { try { trackMap.removeLayer(layer); } catch {} });
+  trackLayers = [];
+}
+
+function forecastIcon(label) {
+  return L.divIcon({ className:"vn-forecast-icon", html:`<span>${label}</span>`, iconSize:[42,28], iconAnchor:[21,14] });
+}
+function currentIcon() {
+  return L.divIcon({ className:"vn-current-icon", html:'<span class="vn-current-ring"><b></b></span>', iconSize:[30,30], iconAnchor:[15,15] });
+}
+function ensureTrackMap() {
+  const el = $("trackMap");
+  if (!el || typeof L === "undefined") return null;
+  if (!trackMap) {
+    trackMap = L.map(el,{zoomControl:true,attributionControl:true,scrollWheelZoom:true,zoomSnap:.25});
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:'&copy; OpenStreetMap contributors'}).addTo(trackMap);
+    trackMap.setView([22.5,88.5],5);
+  }
+  return trackMap;
+}
+function drawGeoMap(hist, proj, data) {
+  const map=ensureTrackMap(), statusEl=$("mapRenderStatus");
+  if(!map){if(statusEl)statusEl.textContent="MAP LIBRARY UNAVAILABLE";return;}
+  clearTrackLayers();
+  const all=[...hist,...proj].filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon)));
+  if(!all.length){if(statusEl)statusEl.textContent="NO TRACK COORDINATES";return;}
+  const observed=hist.map(p=>[Number(p.lat),Number(p.lon)]).filter(p=>p.every(Number.isFinite));
+  const forecast=proj.map(p=>[Number(p.lat),Number(p.lon)]).filter(p=>p.every(Number.isFinite));
+  if(observed.length>=2){const l=L.polyline(observed,{color:"#12a9b8",weight:4,opacity:.95,lineCap:"round",lineJoin:"round"}).addTo(map);trackLayers.push(l);}
+  observed.forEach((latlon,i)=>{const m=L.circleMarker(latlon,{radius:i===observed.length-1?7:4,color:i===observed.length-1?"#102733":"#fff",weight:i===observed.length-1?3:2,fillColor:"#12a9b8",fillOpacity:1}).addTo(map);trackLayers.push(m);});
+  if(forecast.length){const start=observed.length?observed[observed.length-1]:forecast[0];const l=L.polyline([start,...forecast],{color:"#7656d7",weight:4,opacity:.95,dashArray:"9 8",lineCap:"round",lineJoin:"round"}).addTo(map);trackLayers.push(l);proj.forEach(p=>{const lat=Number(p.lat),lon=Number(p.lon);if(!Number.isFinite(lat)||!Number.isFinite(lon))return;const m=L.marker([lat,lon],{icon:forecastIcon(`+${p.hours_ahead}H`),zIndexOffset:400}).addTo(map);trackLayers.push(m);});}
+  if(data.current){const lat=Number(data.current.lat),lon=Number(data.current.lon);if(Number.isFinite(lat)&&Number.isFinite(lon)){const m=L.marker([lat,lon],{icon:currentIcon(),zIndexOffset:800}).addTo(map);m.bindTooltip(`${data.storm_name||data.cyclone_id||"CURRENT"} · CURRENT`,{permanent:true,direction:"right",offset:[12,-12],className:"vn-current-tooltip"});trackLayers.push(m);}}
+  const bounds=L.latLngBounds(all.map(p=>[Number(p.lat),Number(p.lon)]));
+  if(bounds.isValid())map.fitBounds(bounds.pad(.18),{animate:true,duration:.55,maxZoom:8});
+  setTimeout(()=>map.invalidateSize(),120);
+  if(statusEl){statusEl.textContent="GEO LAYER READY · LIVE TRACK";statusEl.classList.add("ready");}
+  $("trackMap")?.classList.add("map-ready");
+}
 function renderTrack(data){
-  state.track = data;
-  const current = data.current;
-  const motion = data.motion || {};
-  text("trackPosition", current ? `${Number(current.lat).toFixed(2)}° N / ${Math.abs(Number(current.lon)).toFixed(2)}° W` : "NOT AVAILABLE");
-  text("trackSpeed", motion.available ? `${motion.speed_kt} kt` : "—");
-  text("trackDirection", motion.available ? `${motion.direction} / ${motion.bearing_deg}°` : "—");
-  text("trackStatus", data.history?.length ? "HISTORICAL BEST TRACK" : "TRACK DATA UNAVAILABLE");
-  text("trackProjectionNote", motion.available ? `Replay: ${data.history.length} verified observations · +${data.projection?.length ? data.projection[data.projection.length-1].hours_ahead : 0}h constant-velocity motion baseline.` : (data.availability?.reason || "No motion estimate."));
-  text("trackHistoryCount",data.history?.length||0); text("trackProjectionCount",data.projection?.length||0);
+  state.track=data;const current=data.current,motion=data.motion||{};
+  text("trackPosition",current?`${fmtCoord(current.lat,"N","S")} / ${fmtCoord(current.lon,"E","W")}`:"NOT AVAILABLE");
+  text("trackSpeed",motion.available?`${Number(motion.speed_kt).toFixed(1)} kt`:"—");
+  text("trackDirection",motion.available?`${motion.direction||"—"} / ${Number(motion.bearing_deg).toFixed(1)}°`:"—");
+  text("trackStatus",data.history?.length?"OBSERVED TRACK READY":"TRACK DATA UNAVAILABLE");
+  text("trackProjectionNote",data.history?.length?`IMD best-track history · ${data.history.length} observations · learned GRU forecast at +3h / +6h / +9h.`:(data.availability?.reason||"No track data."));
+  text("trackHistoryCount",data.history?.length||0);text("trackProjectionCount",data.projection?.length||0);
   const rows=$("projectionRows");
-  if(rows) rows.innerHTML=(data.projection||[]).length ? data.projection.map(p=>`<div class="projection-row"><span>+${p.hours_ahead}H</span><b>${Number(p.lat).toFixed(2)}° N</b><b>${Math.abs(Number(p.lon)).toFixed(2)}° W</b></div>`).join("") : "No projection available.";
-  const hist=data.history||[], proj=data.projection||[];
-  drawGeoMap(hist,proj,data);
+  if(rows)rows.innerHTML=(data.projection||[]).length?data.projection.map(p=>`<div class="projection-row"><span>+${p.hours_ahead}H</span><b>${fmtCoord(p.lat,"N","S")}</b><b>${fmtCoord(p.lon,"E","W")}</b></div>`).join(""):`<div class="empty-note">${data.track_model?.available===false?(data.track_model?.reason||"AI forecast unavailable"):"No forecast points available."}</div>`;
+  drawGeoMap(data.history||[],data.projection||[],data);
 }
-
-let geoAnimation=0;
-function drawGeoMap(hist,proj,data){
-  const canvas=$("trackCanvas"), wrap=canvas?.parentElement, statusEl=$("mapRenderStatus");
-  if(!canvas || !wrap) return;
-  const dpr=Math.min(window.devicePixelRatio||1,2), rect=canvas.getBoundingClientRect();
-  const W=Math.max(760,Math.round(rect.width||820)), H=Math.max(390,Math.round(rect.height||430));
-  canvas.width=Math.round(W*dpr); canvas.height=Math.round(H*dpr);
-  const ctx=canvas.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0);
-  const bg=new Image(); bg.src="assets/north_atlantic_map.png";
-  const all=[...hist,...proj];
-  if(!all.length){ctx.clearRect(0,0,W,H);return;}
-  const minLon=-76,maxLon=-18,minLat=22,maxLat=43;
-  const xy=p=>({x:(Number(p.lon)-minLon)/(maxLon-minLon)*W,y:H-(Number(p.lat)-minLat)/(maxLat-minLat)*H});
-  const draw=()=>{
-    ctx.clearRect(0,0,W,H);
-    ctx.fillStyle="#edf6fc";ctx.fillRect(0,0,W,H);
-    if(bg.complete) ctx.drawImage(bg,0,0,W,H);
-    // UI grid overlay
-    ctx.strokeStyle="rgba(82,137,171,.12)";ctx.lineWidth=1;
-    for(let x=0;x<W;x+=Math.max(42,W/14)){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
-    for(let y=0;y<H;y+=Math.max(38,H/11)){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
-    // geographic labels
-    ctx.fillStyle="#5d7890";ctx.font="10px JetBrains Mono, monospace";ctx.letterSpacing="1px";
-    ctx.fillText("NORTH ATLANTIC / BEST-TRACK REPLAY",18,24);
-    ctx.fillText("LAT / LON · LOCAL GEO LAYER",W-210,H-16);
-    // observed route
-    if(hist.length){ctx.beginPath();hist.forEach((p,i)=>{const q=xy(p);i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y)});ctx.strokeStyle="#0ca9a2";ctx.lineWidth=4;ctx.lineCap="round";ctx.lineJoin="round";ctx.stroke();
-      hist.forEach((p,i)=>{const q=xy(p);ctx.beginPath();ctx.arc(q.x,q.y,i===hist.length-1?7:3.5,0,Math.PI*2);ctx.fillStyle=i===hist.length-1?"#102733":"#0ca9a2";ctx.fill();});}
-    if(proj.length){ctx.beginPath();[hist.at(-1),...proj].forEach((p,i)=>{const q=xy(p);i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y)});ctx.strokeStyle="#7656d7";ctx.lineWidth=3;ctx.setLineDash([8,8]);ctx.lineDashOffset=-(Date.now()/80)%32;ctx.stroke();ctx.setLineDash([]);
-      proj.forEach((p,i)=>{const q=xy(p);ctx.beginPath();ctx.arc(q.x,q.y,6,0,Math.PI*2);ctx.fillStyle="#fff";ctx.fill();ctx.strokeStyle="#7656d7";ctx.lineWidth=2;ctx.stroke();ctx.fillStyle="#7656d7";ctx.font="9px JetBrains Mono, monospace";ctx.fillText(`+${p.hours_ahead}H`,q.x+8,q.y-8);});}
-    const c=data.current;if(c){const q=xy(c);const pulse=7+Math.sin(Date.now()/260)*3;ctx.beginPath();ctx.arc(q.x,q.y,pulse+6,0,Math.PI*2);ctx.strokeStyle="rgba(12,169,162,.22)";ctx.lineWidth=2;ctx.stroke();ctx.beginPath();ctx.arc(q.x,q.y,7,0,Math.PI*2);ctx.fillStyle="#102733";ctx.fill();ctx.fillStyle="#102733";ctx.font="10px JetBrains Mono, monospace";ctx.fillText(`${data.storm_name||data.cyclone_id||"CURRENT"} · CURRENT`,q.x+11,q.y-11);}
-  };
-  const animate=()=>{draw();geoAnimation=requestAnimationFrame(animate)};
-  cancelAnimationFrame(geoAnimation); bg.onload=()=>{if(statusEl){statusEl.textContent="GEO LAYER READY · LIVE TRACK";statusEl.classList.add("ready")} animate();};
-  if(bg.complete) {if(statusEl){statusEl.textContent="GEO LAYER READY · LIVE TRACK";statusEl.classList.add("ready")} animate();}
-}
-
 async function loadTrack(){
-  text("trackStatus","ACQUIRING TRACK…"); const ms=$("mapRenderStatus"); if(ms){ms.classList.remove("ready");ms.textContent="ACQUIRING GEOSPATIAL LAYER…";}
-  try{ const data=await api("/track",{},15000); renderTrack(data); }
-  catch(err){ text("trackStatus","UNAVAILABLE"); text("trackProjectionNote",err.message); if(ms)ms.textContent="TRACK SERVICE UNAVAILABLE"; }
+  text("trackStatus","ACQUIRING TRACK…");const ms=$("mapRenderStatus");if(ms){ms.classList.remove("ready");ms.textContent="ACQUIRING GEOSPATIAL LAYER…";}
+  try{const data=await api("/track",{},15000);if(data.status==="error")throw new Error(data.error||"Track service error");renderTrack(data);}catch(err){text("trackStatus","UNAVAILABLE");text("trackProjectionNote",err.message);if(ms)ms.textContent="TRACK SERVICE UNAVAILABLE";}
 }
-
 
 function renderCategoryBars(category){
   const box=$("categoryBars");

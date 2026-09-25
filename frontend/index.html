@@ -8,6 +8,7 @@
 <meta name="theme-color" content="#eaf4fb">
 <link rel="icon" type="image/png" href="assets/vayunetra-logo.png">
 <link rel="apple-touch-icon" href="assets/vayunetra-logo.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 </head>
 <body>
 <div class="login-screen" id="loginScreen" aria-label="VayuNetra admin sign in">
@@ -210,22 +211,23 @@
 </section>
 
 <section class="floating-window wide" id="window-forecast" data-window-panel>
-  <div class="window-head"><div><span class="window-kicker">WINDOW 03 / TRACK</span><h3>Cyclone Track & Motion</h3></div><button class="close-window">×</button></div>
+  <div class="window-head"><div><span class="window-kicker">WINDOW 03 / TRACK</span><h3>Cyclone Track &amp; Forecast</h3></div><button class="close-window">×</button></div>
   <div class="window-body track-window">
     <div class="track-map-wrap">
-      <div class="map-live-badge"><span class="map-live-dot"></span> LIVE GEO-RENDER</div>
-      <canvas id="trackCanvas" width="820" height="430" aria-label="Schematic cyclone track fallback"></canvas>
+      <div class="map-live-badge"><span class="map-live-dot"></span> LIVE GEOSPATIAL TRACK</div>
+      <div class="map-source-badge">OPENSTREETMAP · LOCAL INFERENCE</div>
+      <div id="trackMap" class="track-leaflet-map" aria-label="Geographic cyclone track map"></div>
       <div class="map-render-status" id="mapRenderStatus">INITIALIZING GEOSPATIAL LAYER…</div>
-      <div class="map-legend"><span><i class="obs-dot"></i> OBSERVED</span><span><i class="proj-dot"></i> MOTION PROJECTION</span></div>
+      <div class="map-legend"><span><i class="obs-dot"></i> OBSERVED · IMD</span><span><i class="proj-dot"></i> AI GRU · 3H / 6H / 9H</span><span class="map-legend-note">LOCAL INFERENCE</span></div>
     </div>
     <div class="track-side">
-      <div class="result-card"><label>TRACK STATUS</label><strong id="trackStatus">LOADING</strong><small>Based on TCIR manifest coordinates when available.</small></div>
+      <div class="result-card"><label>TRACK STATUS</label><strong id="trackStatus">LOADING</strong><small>IMD best-track history · learned GRU forecast.</small></div>
       <div class="result-card"><label>CURRENT POSITION</label><strong id="trackPosition">—</strong><small>latest observed coordinate</small></div>
-      <div class="result-card"><label>MOTION</label><strong id="trackDirection">—</strong><small>heading / bearing</small></div>
-      <div class="result-card"><label>SPEED</label><strong id="trackSpeed">—</strong><small>estimated displacement rate</small></div>
-      <div class="projection-list"><div class="panel-title"><span>SHORT-HORIZON PROJECTION</span><span>BASELINE</span></div><div id="projectionRows" class="empty-note">Projection points will appear when two observed positions are available.</div></div>
+      <div class="result-card"><label>MOTION</label><strong id="trackDirection">—</strong><small>recent observed motion trend</small></div>
+      <div class="result-card"><label>SPEED</label><strong id="trackSpeed">—</strong><small>recent track displacement rate</small></div>
+      <div class="projection-list"><div class="panel-title"><span>AI TRACK FORECAST</span><span>GRU · 3H / 6H / 9H</span></div><div id="projectionRows" class="empty-note">Forecast points will appear when the Track GRU is available.</div></div>
     </div>
-    <div class="scope-note" id="trackProjectionNote">Observed track and future motion projection are separated. The current TCIR neural network predicts intensity, pressure and size; it does not predict latitude/longitude.</div>
+    <div class="scope-note" id="trackProjectionNote">Observed positions come from the IMD best-track CSV family used for the Track GRU. Future positions are produced by the learned 3h / 6h / 9h model; the constant-motion calculation is retained separately as a baseline.</div>
   </div>
 </section>
 
@@ -282,6 +284,7 @@
 </section>
 </div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="app.js"></script>
 </body>
 </html>

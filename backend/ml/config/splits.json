@@ -1,0 +1,6 @@
+{
+  "train": ["FANI", "TAUKTAE", "AMPHAN", "YAAS", "ASANI", "NISARGA"],
+  "val": ["BULBUL", "GULAAB"],
+  "test": ["BIPARJOY", "MICHAUNG"],
+  "seed": 42
+}

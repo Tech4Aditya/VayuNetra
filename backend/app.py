@@ -12,7 +12,6 @@ Run:
 """
 
 import io
-import base64
 import os
 import sys
 from pathlib import Path
@@ -24,64 +23,15 @@ import pandas as pd
 import torch
 from PIL import Image
 from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parent
-PROJECT_ROOT = ROOT.parent
+CKPT_DIR = ROOT / "checkpoints"
+DATA_DIR = ROOT / "data"
 
-def _search_roots():
-    roots = [ROOT, PROJECT_ROOT, Path.cwd()]
-    for base in list(roots):
-        roots.extend(list(base.parents)[:3])
-    out = []
-    seen = set()
-    for r in roots:
-        r = r.resolve()
-        if r not in seen and r.exists():
-            seen.add(r); out.append(r)
-    return out
-
-SEARCH_ROOTS = _search_roots()
-
-def _pick_existing(*candidates: Path) -> Path:
-    for candidate in candidates:
-        if candidate.is_file() or candidate.is_dir():
-            return candidate.resolve()
-    # Last resort: search the actual project tree for the exact filename.
-    target = candidates[0].name
-    for root in SEARCH_ROOTS:
-        try:
-            hits = list(root.rglob(target))
-            if hits:
-                return hits[0].resolve()
-        except Exception:
-            pass
-    return candidates[0].resolve()
-
-# Resolve from the file location, the project root, the current working directory,
-# and finally by filename search. This makes the app survive launching uvicorn
-# from either the repository root or the backend directory.
-DATA_DIR = _pick_existing(
-    ROOT / "data",
-    PROJECT_ROOT / "backend" / "data",
-    PROJECT_ROOT / "data",
-)
-CKPT_DIR = _pick_existing(
-    ROOT / "checkpoints",
-    PROJECT_ROOT / "backend" / "checkpoints",
-    PROJECT_ROOT / "checkpoints",
-)
-
-TCIR_H5 = _pick_existing(
-    DATA_DIR / "raw" / "tcir" / "Cyclone_Images.h5",
-    PROJECT_ROOT / "backend" / "data" / "raw" / "tcir" / "Cyclone_Images.h5",
-)
-TCIR_TEST = _pick_existing(
-    DATA_DIR / "labels" / "tcir_temporal_test.csv",
-    PROJECT_ROOT / "backend" / "data" / "labels" / "tcir_temporal_test.csv",
-)
+TCIR_H5 = DATA_DIR / "raw" / "tcir" / "Cyclone_Images.h5"
+TCIR_TEST = DATA_DIR / "labels" / "tcir_temporal_test.csv"
 TCIR_TEMPORAL_CKPT = CKPT_DIR / "tcir_temporal_best.pt"
 TCIR_INTENSITY_CKPT = CKPT_DIR / "tcir_intensity_best.pt"
 
@@ -90,9 +40,9 @@ INSAT_PROCESSED = DATA_DIR / "processed"
 
 SYNTH_CLASSIFIER_CKPT = CKPT_DIR / "classifier.pt"
 SYNTH_PREDICTOR_CKPT = CKPT_DIR / "predictor.pt"
+TRACK_MULTI_CKPT = CKPT_DIR / "track_gru_multi_best.pt"
 
 EVAL_DIR = DATA_DIR / "evaluation"
-TRACK_CATALOG = ROOT / "track_catalog.json"
 
 sys.path.insert(0, str(ROOT))
 
@@ -101,6 +51,7 @@ from models.predictor import CycloneTrendLSTM
 from models.tcir_temporal import TCIRTemporalModel
 from models.tcir_intensity import TCIRIntensityCNN
 from data.generate_synthetic import make_sequence, CATEGORIES
+from models.track_gru_multi import TrackGRUMulti
 
 TREND_LABELS = {0: "Weakening", 1: "Steady", 2: "Intensifying"}
 TCIR_CHANNEL_INDEX = {"IR": 0, "WV": 1, "VIS": 2, "PMW": 3}
@@ -123,6 +74,8 @@ tcir_intensity_model = None
 tcir_intensity_checkpoint = {}
 insat_model = None
 insat_checkpoint = {}
+track_multi_model = None
+track_multi_checkpoint = {}
 model_errors: dict[str, str] = {}
 
 
@@ -136,6 +89,7 @@ def _safe_load_models():
     global tcir_temporal_model, tcir_temporal_checkpoint
     global tcir_intensity_model, tcir_intensity_checkpoint
     global insat_model, insat_checkpoint
+    global track_multi_model, track_multi_checkpoint
 
     # Existing synthetic pipeline.
     try:
@@ -194,6 +148,21 @@ def _safe_load_models():
         model_errors["insat"] = str(exc)
         insat_model = None
         insat_checkpoint = {}
+
+    # Learned multi-horizon trajectory model.
+    try:
+        track_multi_checkpoint = _load_state(TRACK_MULTI_CKPT)
+        track_multi_model = TrackGRUMulti(
+            in_features=int(track_multi_checkpoint.get("input_features", 5)),
+            horizons=len(track_multi_checkpoint.get("horizons", [3, 6, 9])),
+        )
+        track_multi_model.load_state_dict(track_multi_checkpoint["model_state_dict"], strict=True)
+        track_multi_model.eval()
+    except Exception as exc:
+        model_errors["track_multi"] = str(exc)
+        track_multi_model = None
+        track_multi_checkpoint = {}
+
 
 
 _safe_load_models()
@@ -259,34 +228,11 @@ def _tcir_single_tensor(frame: list, channels=("IR", "PMW")) -> torch.Tensor:
 
 
 def _find_insat_sample():
-    # Primary layout produced by train_insat_real.py.
-    names = ["tir1_radiance.npy", "wv_radiance.npy"]
-    for root in SEARCH_ROOTS:
-        try:
-            for tir_path in root.rglob(names[0]):
-                wv_path = tir_path.parent / names[1]
-                if wv_path.is_file():
-                    return tir_path.resolve(), wv_path.resolve()
-        except Exception:
-            pass
-
-    # Fallback: inspect INSAT manifests for explicit processed paths.
-    for root in SEARCH_ROOTS:
-        try:
-            manifests = list(root.rglob("*_insat_manifest.csv")) + list(root.rglob("insat_combined_manifest.csv"))
-            for manifest in manifests:
-                df = pd.read_csv(manifest)
-                cols = {str(c).lower(): c for c in df.columns}
-                tir_col = next((c for k,c in cols.items() if "tir1" in k and ("path" in k or "file" in k)), None)
-                wv_col = next((c for k,c in cols.items() if ("water" in k or k.startswith("wv")) and ("path" in k or "file" in k)), None)
-                if tir_col and wv_col:
-                    for _, row in df.iterrows():
-                        tp = Path(str(row[tir_col])); wp = Path(str(row[wv_col]))
-                        if not tp.is_absolute(): tp = (manifest.parent / tp).resolve()
-                        if not wp.is_absolute(): wp = (manifest.parent / wp).resolve()
-                        if tp.is_file() and wp.is_file(): return tp, wp
-        except Exception:
-            pass
+    candidates = sorted(INSAT_PROCESSED.glob("**/tir1_radiance.npy"))
+    for tir_path in candidates:
+        wv_path = tir_path.parent / "wv_radiance.npy"
+        if wv_path.exists():
+            return tir_path, wv_path
     return None, None
 
 
@@ -377,10 +323,7 @@ def data_sources():
             "manifest": TCIR_TEST.exists(),
         },
         "INSAT": {
-            "status": "LIVE SOURCE + MODEL" if insat_model is not None else "LIVE SOURCE",
-            "live_source": True,
-            "live_url": "https://www.mosdac.gov.in/scorpio/quad/",
-            "platform": "INSAT-3DR/3DS",
+            "status": "READY" if insat_model is not None else "MODEL MISSING",
             "classifier_model": insat_model is not None,
             "real_sample": tir_path is not None and wv_path is not None,
             "sample": str(tir_path.parent.name) if tir_path else None,
@@ -411,80 +354,30 @@ def metrics():
     return out
 
 
-def _fallback_synthetic_sequence():
-    """Deterministic local synthetic sequence used only when the generator fails.
-    It keeps the demo endpoint alive; it is not model evidence or real data.
-    """
-    rng = np.random.default_rng(42)
-    h = w = 128
-    yy, xx = np.mgrid[0:h, 0:w]
-    frames = []
-    for t in range(4):
-        cx = 42 + t * 7
-        cy = 76 - t * 3
-        r = np.sqrt((xx-cx)**2 + (yy-cy)**2)
-        ring = np.exp(-((r-18.0)**2)/(2*7.0**2))
-        core = np.exp(-((r)**2)/(2*9.0**2))
-        swirl = 0.18*np.sin((xx+yy+t*10)/7.0)
-        frame = (0.12 + 0.62*ring + 0.35*core + swirl + rng.normal(0,0.035,(h,w))).clip(0,1)
-        frames.append(frame.astype(np.float32))
-    return {"frames": np.stack(frames), "category_label": 1, "trend_label": 2}
-
 @app.get("/demo_sequence")
 def demo_sequence():
-    try:
-        seq = make_sequence()
-        source = "synthetic_validation"
-    except Exception as exc:
-        seq = _fallback_synthetic_sequence()
-        source = "synthetic_validation_fallback"
-        model_errors["synthetic_generator"] = str(exc)
-    try:
-        trend_index = int(seq["trend_label"])
-        category_index = int(seq["category_label"])
-        frames = np.asarray(seq["frames"], dtype=np.float32)
-        return {
-            "status": "success",
-            "frames": frames.tolist(),
-            "true_category": CATEGORIES[category_index],
-            "true_trend": TREND_LABELS.get(trend_index, "Intensifying"),
-            "source": source,
-            "note": "Synthetic validation only; not real-world cyclone evidence.",
-        }
-    except Exception as exc:
-        return {"status":"error", "error":f"Synthetic sequence preparation failed: {exc}"}
-
-
-@app.get("/debug_paths")
-def debug_paths():
-    tir_path, wv_path = _find_insat_sample()
+    if classifier is None or predictor is None:
+        return {"status": "error", "error": "Synthetic validation models are not loaded."}
+    seq = make_sequence()
+    trend_index = int(seq["trend_label"]) + 1
     return {
-        "project_root": str(PROJECT_ROOT),
-        "backend_root": str(ROOT),
-        "cwd": os.getcwd(),
-        "tcir_h5": {"path": str(TCIR_H5), "exists": TCIR_H5.exists(), "size_gb": round(TCIR_H5.stat().st_size / (1024**3), 3) if TCIR_H5.is_file() else None},
-        "tcir_manifest": {"path": str(TCIR_TEST), "exists": TCIR_TEST.exists(), "size_kb": round(TCIR_TEST.stat().st_size / 1024, 1) if TCIR_TEST.is_file() else None},
-        "tcir_temporal_checkpoint": {"path": str(TCIR_TEMPORAL_CKPT), "exists": TCIR_TEMPORAL_CKPT.exists()},
-        "insat_sample": {"tir1": str(tir_path) if tir_path else None, "wv": str(wv_path) if wv_path else None},
+        "status": "success",
+        "frames": seq["frames"].tolist(),
+        "true_category": CATEGORIES[int(seq["category_label"])],
+        "true_trend": TREND_LABELS[trend_index],
+        "source": "synthetic_validation",
     }
 
 
 @app.get("/tcir_demo")
 def tcir_demo():
-    if not TCIR_H5.is_file() or not TCIR_TEST.is_file():
-        return {
-            "status": "error",
-            "error": "TCIR data path unresolved.",
-            "paths": {
-                "h5": str(TCIR_H5), "h5_exists": TCIR_H5.is_file(),
-                "manifest": str(TCIR_TEST), "manifest_exists": TCIR_TEST.is_file(),
-                "cwd": os.getcwd(), "backend_root": str(ROOT),
-            },
-        }
+    if not TCIR_H5.exists() or not TCIR_TEST.exists():
+        return {"status": "error", "error": "TCIR HDF5 or temporal test manifest not found."}
     df = pd.read_csv(TCIR_TEST)
     if df.empty:
         return {"status": "error", "error": "TCIR temporal test manifest is empty."}
     row = df.iloc[0]
+    track_storm, track_resolution = _resolve_demo_track_storm(row)
     frame_cols = ["frame_0_h5_index", "frame_1_h5_index", "frame_2_h5_index", "frame_3_h5_index"]
     indices = [int(row[c]) for c in frame_cols]
     with h5py.File(TCIR_H5, "r") as h5:
@@ -497,9 +390,13 @@ def tcir_demo():
             "file": TCIR_H5.name,
             "split": "test",
             "cyclone_id": str(row.get("cyclone_id", "TCIR TEST SAMPLE")),
+            "track_storm": track_storm,
+            "track_resolution": track_resolution,
             "target_timestamp": str(row.get("target_timestamp", "")),
         },
         "cyclone_id": str(row.get("cyclone_id", "TCIR TEST SAMPLE")),
+        "track_storm": track_storm,
+        "track_resolution": track_resolution,
         "target_timestamp": str(row.get("target_timestamp", "")),
         "temporal_context": {
             "frames": 4,
@@ -529,6 +426,70 @@ def _find_col(df, candidates):
         if any(c in lc for c in candidates):
             return col
     return None
+
+
+def _resolve_demo_track_storm(row):
+    """Map a TCIR dataset identifier to an available IMD best-track storm."""
+    files = sorted((DATA_DIR / "labels").glob("*_besttrack.csv"))
+    if not files:
+        return "AMPHAN", "no best-track files; using demo fallback"
+
+    # Direct storm/name fields, when present.
+    for col in ("storm_name", "storm", "storm_id", "name", "cyclone_name"):
+        if col in row.index and pd.notna(row[col]):
+            requested = str(row[col]).strip().upper()
+            for f in files:
+                if f.stem.replace("_besttrack", "").upper() == requested:
+                    return requested, "direct manifest storm-name match"
+
+    lower = {str(c).strip().lower(): c for c in row.index}
+    def rv(candidates):
+        for c in candidates:
+            if c in lower and pd.notna(row[lower[c]]):
+                return row[lower[c]]
+        for col in row.index:
+            lc = str(col).strip().lower()
+            if any(c in lc for c in candidates) and pd.notna(row[col]):
+                return row[col]
+        return None
+
+    try:
+        lat_v = rv(["target_latitude", "target_lat", "latitude", "lat"])
+        lon_v = rv(["target_longitude", "target_lon", "longitude", "lon"])
+        time_v = rv(["target_timestamp", "timestamp", "datetime", "date_time", "time"])
+        target_lat = float(lat_v) if lat_v is not None else None
+        target_lon = float(lon_v) if lon_v is not None else None
+        target_time = pd.to_datetime(time_v, utc=True, errors="coerce") if time_v is not None else pd.NaT
+    except Exception:
+        target_lat = target_lon = None
+        target_time = pd.NaT
+
+    if target_lat is not None and target_lon is not None and np.isfinite(target_lat) and np.isfinite(target_lon):
+        best = None
+        for f in files:
+            try:
+                d = pd.read_csv(f)
+                lat_col = _find_col(d, ["latitude", "lat", "lat_deg", "center_lat", "storm_lat"])
+                lon_col = _find_col(d, ["longitude", "lon", "long", "lon_deg", "center_lon", "storm_lon"])
+                time_col = _find_col(d, ["timestamp", "datetime", "date", "time", "valid_time", "observation_time"])
+                if lat_col is None or lon_col is None:
+                    continue
+                dlat = pd.to_numeric(d[lat_col], errors="coerce")
+                dlon = pd.to_numeric(d[lon_col], errors="coerce")
+                score = np.hypot(dlat - target_lat, (dlon - target_lon) * np.cos(np.deg2rad(target_lat)))
+                if time_col is not None and not pd.isna(target_time):
+                    dt = pd.to_datetime(d[time_col], utc=True, errors="coerce", format="mixed")
+                    score = score + 0.03 * ((dt - target_time).abs().dt.total_seconds() / 3600.0)
+                idx = score.idxmin()
+                val = float(score.loc[idx])
+                if best is None or val < best[0]:
+                    best = (val, f.stem.replace("_besttrack", "").upper())
+            except Exception:
+                continue
+        if best is not None and best[0] < 2.5:
+            return best[1], "nearest IMD best-track coordinate/time match"
+
+    return "AMPHAN", "TCIR identifier is not an IMD storm name; using deterministic demo fallback"
 
 
 def _extract_track_from_manifest(df, cyclone_id):
@@ -579,100 +540,245 @@ def _compass_direction(deg):
 
 
 def _project_motion(points, hours=(3, 6, 9)):
+    """Estimate recent motion from a short, chronologically ordered track window.
+
+    Uses up to the last five distinct positions and a least-squares trend in
+    latitude/longitude. This avoids a misleading 0°/cardinal bearing caused
+    by quantized best-track coordinates at a single 3-hour interval.
+    """
     if len(points) < 2:
         return [], {"available": False, "reason": "At least two observed positions are required for motion estimation."}
-    a, b = points[-2], points[-1]
-    try:
-        ta = pd.to_datetime(a["timestamp"]); tb = pd.to_datetime(b["timestamp"])
-        dt_h = max((tb - ta).total_seconds() / 3600.0, 1e-6)
-    except Exception:
-        dt_h = 3.0
-    dlat = b["lat"] - a["lat"]; dlon = b["lon"] - a["lon"]
-    lat_rad = np.deg2rad(b["lat"])
-    east_nm = dlon * np.cos(lat_rad) * 60.0
-    north_nm = dlat * 60.0
-    speed_kt = float(np.hypot(east_nm, north_nm) / dt_h)
-    bearing = (np.degrees(np.arctan2(east_nm, north_nm)) + 360.0) % 360.0
-    projections = [
-        {"hours_ahead": h, "lat": round(float(b["lat"] + dlat / dt_h * h), 5),
-         "lon": round(float(b["lon"] + dlon / dt_h * h), 5)}
-        for h in hours
-    ]
+
+    # Keep only valid, distinct geographic observations.
+    valid = []
+    seen_xy = set()
+    for p in points:
+        try:
+            lat = float(p["lat"]); lon = float(p["lon"])
+            t = pd.to_datetime(p["timestamp"], utc=True)
+            if not np.isfinite(lat) or not np.isfinite(lon) or pd.isna(t):
+                continue
+            key = (round(lat, 6), round(lon, 6))
+            if key in seen_xy:
+                continue
+            seen_xy.add(key)
+            valid.append((t, lat, lon, p))
+        except Exception:
+            continue
+
+    if len(valid) < 2:
+        return [], {"available": False, "reason": "Recent observed positions contain no measurable displacement."}
+
+    window = valid[-5:]
+    t0 = window[0][0]
+    elapsed = np.asarray([(x[0] - t0).total_seconds() / 3600.0 for x in window], dtype=np.float64)
+    lats = np.asarray([x[1] for x in window], dtype=np.float64)
+    lons = np.asarray([x[2] for x in window], dtype=np.float64)
+
+    if elapsed[-1] <= 0:
+        return [], {"available": False, "reason": "Observed timestamps are not strictly increasing."}
+
+    # Local longitude unwrap so a dateline crossing cannot create a huge jump.
+    unwrapped_lon = np.rad2deg(np.unwrap(np.deg2rad(lons)))
+    lat_rate, lat_intercept = np.polyfit(elapsed, lats, 1)
+    lon_rate, lon_intercept = np.polyfit(elapsed, unwrapped_lon, 1)
+
+    current = points[-1]
+    cur_lat = float(current["lat"]); cur_lon = float(current["lon"])
+    # Use the fitted rates (degrees/hour) for a stable recent motion estimate.
+    lat_rate = float(lat_rate); lon_rate = float(lon_rate)
+    lat_rad = np.deg2rad(cur_lat)
+    east_nm_h = lon_rate * np.cos(lat_rad) * 60.0
+    north_nm_h = lat_rate * 60.0
+    speed_kt = float(np.hypot(east_nm_h, north_nm_h))
+
+    if speed_kt < 0.05:
+        return [], {"available": False, "reason": "Recent observed positions contain insufficient measurable displacement."}
+
+    bearing = float((np.degrees(np.arctan2(east_nm_h, north_nm_h)) + 360.0) % 360.0)
+    direction = _compass_direction(bearing)
+
+    projections = []
+    for h in hours:
+        projections.append({
+            "hours_ahead": int(h),
+            "lat": round(cur_lat + lat_rate * h, 5),
+            "lon": round(((cur_lon + lon_rate * h + 180.0) % 360.0) - 180.0, 5),
+        })
+
     return projections, {
-        "available": True, "speed_kt": round(speed_kt, 2),
-        "bearing_deg": round(float(bearing), 1),
-        "direction": _compass_direction(bearing),
-        "based_on_hours": round(dt_h, 2)
+        "available": True,
+        "speed_kt": round(speed_kt, 2),
+        "bearing_deg": round(bearing, 1),
+        "direction": direction,
+        "method": "linear trend over latest distinct observed positions",
+        "observations_used": len(window),
+        "based_on_hours": round(float(elapsed[-1]), 2),
+        "from_timestamp": str(window[0][0]),
+        "to_timestamp": str(window[-1][0]),
+        "lat_rate_deg_h": round(lat_rate, 5),
+        "lon_rate_deg_h": round(lon_rate, 5),
     }
+
+def _prepare_track_features(points, n=5):
+    """Build the exact 5-feature history used by TrackGRUMulti.
+
+    Feature order: latitude, longitude, wind_kt, pressure_hpa, size_nmi.
+    The trained checkpoint supplies the training-set normalization statistics.
+    """
+    if len(points) < n:
+        return None, {"available": False, "reason": f"Need at least {n} chronological observations for the GRU track model."}
+
+    recent = points[-n:]
+    required = ("wind_kt", "pressure_hpa", "size_nmi")
+    missing = [
+        name for name in required
+        if any(p.get(name) is None for p in recent)
+    ]
+    if missing:
+        return None, {"available": False, "reason": f"Track model features missing: {', '.join(missing)}."}
+
+    x = np.asarray([
+        [p["lat"], p["lon"], p["wind_kt"], p["pressure_hpa"], p["size_nmi"]]
+        for p in recent
+    ], dtype=np.float32)
+    return x, {"available": True, "observations_used": n, "feature_order": ["lat", "lon", "wind_kt", "pressure_hpa", "size_nmi"]}
+
+
+def _predict_track_gru(points):
+    if track_multi_model is None:
+        return [], {"available": False, "reason": model_errors.get("track_multi", "Track GRU checkpoint is not loaded.")}
+
+    x, feature_info = _prepare_track_features(points, n=5)
+    if x is None:
+        return [], feature_info
+
+    mean = np.asarray(track_multi_checkpoint.get("mean"), dtype=np.float32)
+    std = np.asarray(track_multi_checkpoint.get("std"), dtype=np.float32)
+    if mean.shape != (5,) or std.shape != (5,):
+        return [], {"available": False, "reason": "Track GRU checkpoint has invalid normalization statistics."}
+
+    xn = (x - mean) / np.maximum(std, 1e-6)
+    tensor = torch.from_numpy(xn.astype(np.float32)).unsqueeze(0)
+    with torch.no_grad():
+        delta = track_multi_model(tensor).squeeze(0).cpu().numpy()
+
+    current = points[-1]
+    horizons = track_multi_checkpoint.get("horizons", [3, 6, 9])
+    projections = []
+    for h, d in zip(horizons, delta):
+        projections.append({
+            "hours_ahead": int(h),
+            "lat": round(float(current["lat"] + d[0]), 5),
+            "lon": round(float(current["lon"] + d[1]), 5),
+            "delta_lat_deg": round(float(d[0]), 5),
+            "delta_lon_deg": round(float(d[1]), 5),
+        })
+    return projections, {"available": True, **feature_info, "model": "TrackGRUMulti"}
+
+
+def _load_besttrack_points(storm: str | None = None):
+    """Load the same IMD best-track source family used to train TrackGRUMulti."""
+    files = sorted((DATA_DIR / "labels").glob("*_besttrack.csv"))
+    if not files:
+        return [], {"available": False, "reason": "No *_besttrack.csv files found in backend/data/labels."}, None
+
+    requested = (storm or "AMPHAN").strip().upper()
+    chosen = None
+    for f in files:
+        if f.stem.replace("_besttrack", "").upper() == requested:
+            chosen = f
+            break
+    if chosen is None:
+        # Accept a storm_id inside the CSV even if the filename differs.
+        for f in files:
+            try:
+                d = pd.read_csv(f, nrows=3)
+                col = _find_col(d, ["cyclone_id", "storm_id", "cyclone", "storm", "name"])
+                if col is not None and requested in d[col].astype(str).str.upper().tolist():
+                    chosen = f
+                    break
+            except Exception:
+                continue
+    if chosen is None:
+        return [], {"available": False, "reason": f"Best-track file for storm '{requested}' was not found."}, requested
+
+    try:
+        df = pd.read_csv(chosen)
+        lat_col = _find_col(df, ["latitude", "lat", "lat_deg", "center_lat", "storm_lat"])
+        lon_col = _find_col(df, ["longitude", "lon", "long", "lon_deg", "center_lon", "storm_lon"])
+        time_col = _find_col(df, ["timestamp", "datetime", "date", "time", "valid_time", "observation_time"])
+        wind_col = _find_col(df, ["wind_kt", "wind", "max_wind", "maximum_wind", "vmax"])
+        pressure_col = _find_col(df, ["pressure_hpa", "pressure", "mslp", "min_pressure"])
+        size_col = _find_col(df, ["size_nmi", "size_nm", "size", "radius_nmi", "radius_nm"])
+        if lat_col is None or lon_col is None or time_col is None:
+            return [], {"available": False, "reason": f"Best-track file {chosen.name} lacks required latitude/longitude/timestamp columns."}, requested
+
+        work = df.copy()
+        work["_parsed_time"] = pd.to_datetime(work[time_col], errors="coerce", utc=True, format="mixed")
+        work = work.dropna(subset=["_parsed_time"]).sort_values("_parsed_time")
+        points = []
+        for _, r in work.iterrows():
+            try:
+                lat, lon = float(r[lat_col]), float(r[lon_col])
+                if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                    continue
+                wind = float(r[wind_col]) if wind_col and pd.notna(r[wind_col]) else None
+                pressure = float(r[pressure_col]) if pressure_col and pd.notna(r[pressure_col]) else None
+                size = float(r[size_col]) if size_col and pd.notna(r[size_col]) else 0.0
+                points.append({
+                    "timestamp": str(r[time_col]),
+                    "lat": round(lat, 5),
+                    "lon": round(lon, 5),
+                    "wind_kt": round(wind, 2) if wind is not None else None,
+                    "pressure_hpa": round(pressure, 2) if pressure is not None else None,
+                    # Best-track training used 0 when no size column existed.
+                    "size_nmi": round(size, 2) if size is not None else 0.0,
+                })
+            except Exception:
+                continue
+
+        unique, seen = [], set()
+        for p in points:
+            key = (p["timestamp"], p["lat"], p["lon"])
+            if key not in seen:
+                unique.append(p); seen.add(key)
+        return unique, {
+            "available": bool(unique),
+            "source_file": str(chosen.relative_to(DATA_DIR)),
+            "source": "IMD best-track CSV",
+            "records": len(unique),
+            "lat_column": str(lat_col), "lon_column": str(lon_col),
+            "time_column": str(time_col),
+        }, requested
+    except Exception as exc:
+        return [], {"available": False, "reason": str(exc)}, requested
 
 
 @app.get("/track")
-def track():
-    """Return a real best-track reference plus short-horizon motion projection.
+def track(storm: str = "AMPHAN"):
+    points, availability, cyclone_id = _load_besttrack_points(storm)
+    if not points:
+        return {"status": "error", "error": availability.get("reason", "Best-track data unavailable.")}
 
-    The TCIR temporal network predicts intensity/pressure/size, not lat/lon.
-    For the demo scenario 200301L, the geographic track is sourced from a
-    curated best-track catalog derived from NOAA/NHC HURDAT2 records.
-    Future points are a transparent constant-velocity motion nowcast from
-    the last two observed best-track points; they are not claimed as neural
-    network track output.
-    """
-    catalog = {}
-    if TRACK_CATALOG.exists():
-        try:
-            import json
-            catalog = json.loads(TRACK_CATALOG.read_text(encoding="utf-8"))
-        except Exception:
-            catalog = {}
-
-    cyclone_id = "200301L"
-    if TCIR_TEST.exists():
-        try:
-            df = pd.read_csv(TCIR_TEST)
-            if not df.empty:
-                row = df.iloc[0]
-                id_col = _find_col(df, ["cyclone_id", "storm_id", "storm", "name"])
-                if id_col is not None and pd.notna(row[id_col]):
-                    candidate = str(row[id_col]).strip()
-                    if candidate in catalog:
-                        cyclone_id = candidate
-        except Exception:
-            pass
-
-    entry = catalog.get(cyclone_id)
-    if not entry:
-        return {
-            "status": "error",
-            "error": f"No verified geographic track is bundled for cyclone {cyclone_id}.",
-            "demo_mode": False,
-        }
-
-    # Historical replay cutoff chosen to align the demo scenario with the
-    # early TCIR 200301L sample shown on the dashboard (approximately 30 kt).
-    # All points up to this timestamp are verified best-track observations.
-    cutoff = pd.Timestamp("2003-04-18T18:00:00Z")
-    points = [p for p in entry["points"] if pd.Timestamp(p["timestamp"]) <= cutoff]
-    # Use the latest observation as the current best-track position.
-    # The frontend can animate/replay this track without fabricating coordinates.
-    projections, motion = _project_motion(points)
-    current = points[-1]
+    # The GRU was trained on 5 chronological observations with
+    # [lat, lon, wind, pressure, size] features, using 0 for missing size.
+    learned_projection, learned_info = _predict_track_gru(points)
+    motion_projection, motion = _project_motion(points)
 
     return {
         "status": "success",
-        "source": entry["source"],
-        "source_url": entry.get("source_url"),
+        "source": "IMD best-track history + learned multi-horizon Track GRU",
         "cyclone_id": cyclone_id,
-        "storm_id": entry.get("storm_id"),
-        "storm_name": entry.get("name"),
-        "basin": entry.get("basin"),
-        "scenario": "HISTORICAL REPLAY / ANA 2003 / 01L",
-        "demo_mode": False,
-        "current": current,
+        "current": points[-1],
+        "motion_basis": motion.get("method", "recent observed positions"),
         "history": points,
+        "projection": learned_projection,
+        "motion_baseline": motion_projection,
         "motion": motion,
-        "projection": projections,
-        "availability": {"available": True, "source": "verified_best_track"},
-        "note": "Historical replay: observed coordinates are best-track observations through 2003-04-18 18:00 UTC. Future points are a constant-velocity geodesic motion baseline from the latest observed displacement, not neural-network latitude/longitude output.",
+        "track_model": learned_info,
+        "availability": availability,
+        "note": "Observed positions and meteorological features come from the IMD best-track CSV family used to construct the Track GRU training sequences. Future positions are produced by the learned GRU at 3h, 6h and 9h; constant-motion projection is retained separately as a baseline."
     }
 
 
@@ -755,51 +861,6 @@ def predict_tcir_single(payload: dict):
         return {"status": "error", "error": str(exc)}
 
 
-def _insat_png_data_url(path: Path) -> str:
-    """Convert a processed INSAT .npy array into a browser-safe PNG data URL."""
-    arr = np.asarray(np.load(path), dtype=np.float32)
-    if arr.ndim > 2:
-        arr = np.squeeze(arr)
-    if arr.ndim != 2:
-        raise ValueError(f"INSAT array must be 2-D, got shape {arr.shape}")
-    finite = arr[np.isfinite(arr)]
-    if finite.size == 0:
-        raise ValueError("INSAT sample contains no finite values")
-    lo, hi = np.percentile(finite, [2, 98])
-    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
-        lo, hi = float(np.nanmin(finite)), float(np.nanmax(finite))
-        if hi <= lo:
-            hi = lo + 1e-6
-    norm = np.clip((arr - lo) / (hi - lo), 0, 1)
-    norm = np.nan_to_num(norm, nan=0.0, posinf=1.0, neginf=0.0)
-    img = Image.fromarray((norm * 255).astype(np.uint8), mode="L")
-    img = img.resize((768, 768), Image.Resampling.BILINEAR)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
-
-
-@app.get("/insat_preview/{channel}")
-def insat_preview(channel: str):
-    tir_path, wv_path = _find_insat_sample()
-    path = tir_path if channel.lower() == "tir1" else wv_path if channel.lower() == "wv" else None
-    if path is None:
-        return {"status": "error", "error": "No local INSAT processed sample available."}
-    arr = np.asarray(np.load(path), dtype=np.float32)
-    finite = arr[np.isfinite(arr)]
-    if finite.size == 0:
-        return {"status": "error", "error": "INSAT sample contains no finite values."}
-    lo, hi = np.percentile(finite, [2, 98])
-    if hi <= lo:
-        hi = lo + 1e-6
-    norm = np.clip((arr - lo) / (hi - lo), 0, 1)
-    img = Image.fromarray((norm * 255).astype(np.uint8), mode="L").resize((768, 768))
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return StreamingResponse(buf, media_type="image/png", headers={"Cache-Control": "no-store"})
-
-
 @app.get("/insat_demo")
 def insat_demo():
     tir_path, wv_path = _find_insat_sample()
@@ -810,10 +871,6 @@ def insat_demo():
         result["sample"] = {
             "tir1": str(tir_path.relative_to(DATA_DIR)),
             "wv": str(wv_path.relative_to(DATA_DIR)),
-        }
-        result["preview"] = {
-            "tir1": _insat_png_data_url(tir_path),
-            "wv": _insat_png_data_url(wv_path),
         }
         return result
     except Exception as exc:
@@ -835,39 +892,6 @@ async def predict_insat(
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
 
-
-@app.post("/predict")
-def predict_synthetic(payload: dict[str, Any]):
-    """Synthetic validation endpoint. Uses trained checkpoints when available;
-    otherwise returns an explicitly labelled deterministic validation fallback.
-    """
-    frames = np.asarray(payload.get("frames", []), dtype=np.float32)
-    if frames.ndim != 3 or frames.shape[0] < 1:
-        return {"status": "error", "error": "Expected frames with shape [T,H,W]."}
-    if classifier is not None and predictor is not None:
-        try:
-            out = _run_synthetic(frames)
-            out["mode"] = "trained_model"
-            return out
-        except Exception as exc:
-            model_errors["synthetic_inference"] = str(exc)
-    # Explicit fallback for a reliable demo path; never presented as trained-model performance.
-    mean_level = float(np.mean(frames[-1]))
-    delta = float(np.mean(frames[-1]) - np.mean(frames[0])) if frames.shape[0] > 1 else 0.0
-    trend = "Intensifying" if delta > 0.005 else ("Weakening" if delta < -0.005 else "Steady")
-    return {
-        "status": "success",
-        "mode": "validation_fallback",
-        "identification": {"cyclone_present_probability": round(float(np.clip(0.70 + mean_level*0.20, 0, 1)), 4)},
-        "classification": {"predicted_category": "Deep Depression", "category_probabilities": {}},
-        "intensity": {"normalized_intensity": round(mean_level, 4), "note": "Synthetic validation fallback; not a wind-speed estimate."},
-        "prediction": {
-            "trend": trend,
-            "trend_probabilities": {},
-            "predicted_next_step_track_delta": [round(delta, 3), round(-delta*0.6, 3)],
-            "scope_note": "Synthetic validation only; fallback path used because trained synthetic inference was unavailable.",
-        },
-    }
 
 @app.post("/predict_image")
 async def predict_image(images: list[UploadFile] = File(...)):
